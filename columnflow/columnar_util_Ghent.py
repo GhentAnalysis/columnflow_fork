@@ -7,7 +7,7 @@ Helpers and utilities for working with columnar libraries (Ghent cms group)
 from __future__ import annotations
 
 __all__ = [
-    "TetraVec"
+    "TetraVec",
 ]
 
 from columnflow.util import maybe_import

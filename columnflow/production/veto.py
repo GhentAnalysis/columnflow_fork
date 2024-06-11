@@ -1,4 +1,3 @@
-from collections import defaultdict
 
 from columnflow.production import Producer, producer
 from columnflow.util import maybe_import, InsertableDict
@@ -52,9 +51,9 @@ def veto_events(
     for veto_event in self.veto_list:
         if file is None or "file" not in veto_event or file.path == veto_event["file"]:
             veto = veto | (
-                     (events.event == veto_event['event']) &
-                     (events.run == veto_event['run']) &
-                     (events.luminosityBlock == veto_event['luminosityBlock'])
+                (events.event == veto_event['event']) &
+                     (events.run == veto_event["run"]) &
+                     (events.luminosityBlock == veto_event["luminosityBlock"])
                      )
 
     events = set_ak_column(events, "veto", veto)

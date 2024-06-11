@@ -30,7 +30,7 @@ import multiprocessing
 import multiprocessing.pool
 from functools import wraps
 from collections import OrderedDict
-from typing import Hashable, Iterable, Callable
+from typing import Iterable, Callable
 
 import law
 from law.util import InsertableDict  # noqa

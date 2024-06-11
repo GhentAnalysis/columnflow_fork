@@ -4,14 +4,13 @@ from scinum import Number
 
 
 from ..cutflow import *
-from columnflow.tasks.framework.decorators import view_output_plots
 from columnflow.tasks.framework.mixins import (
-    CalibratorsMixin, SelectorStepsMixin, CategoriesMixin,  DatasetsProcessesMixin
+    CalibratorsMixin, SelectorStepsMixin, CategoriesMixin, DatasetsProcessesMixin,
 )
 
 import luigi
 import law
-from columnflow.util import maybe_import, DotDict, dev_sandbox, try_int
+from columnflow.util import maybe_import, dev_sandbox, try_int
 
 np = maybe_import("numpy")
 
@@ -211,7 +210,7 @@ class CreateCutflowTable(
                     yields[step].append(value)
 
             # obtain normalizaton factors
-            norm_factors = 0.01 if '100' in self.normalize_yields else 1
+            norm_factors = 0.01 if "100" in self.normalize_yields else 1
             if self.normalize_yields == "all":
                 norm_factors *= sum(
                     sum(step_yields)
@@ -262,4 +261,3 @@ class CreateCutflowTable(
 
             outputs["table"].dump(yield_table, formatter="text")
             outputs["yields"].dump(raw_yields, formatter="json")
-
