@@ -4,7 +4,6 @@ from columnflow.tasks.framework.base import ConfigTask
 from columnflow.tasks.framework.mixins import DatasetsProcessesMixin
 
 
-
 class ReadDataSets(DatasetsProcessesMixin, ConfigTask):
 
     shifts = luigi.BoolParameter(

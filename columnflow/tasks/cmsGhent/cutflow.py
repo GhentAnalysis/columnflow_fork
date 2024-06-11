@@ -1,9 +1,12 @@
 
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from scinum import Number
 
 
-from ..cutflow import *
+
+from columnflow.tasks.cutflow import (
+    RemoteWorkflow, Requirements, MergeCutflowHistograms,
+)
 from columnflow.tasks.framework.mixins import (
     CalibratorsMixin, SelectorStepsMixin, CategoriesMixin, DatasetsProcessesMixin,
 )

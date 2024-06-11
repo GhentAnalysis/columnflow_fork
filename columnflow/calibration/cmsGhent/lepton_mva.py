@@ -2,7 +2,6 @@
 Code to add lepton MVA to NanoAOD
 """
 
-
 from columnflow.calibration import Calibrator, calibrator
 from columnflow.production import producer
 from columnflow.util import maybe_import
@@ -50,7 +49,8 @@ def lepton_mva_inputs_producer(self: Calibrator, events: ak.Array, **kwargs) -> 
             events = set_ak_column(events, f"{lepton_name}.log_abs" + impact, np.log(np.abs(lepton[impact])))
 
         # Relative mini-isolation with neutral PF objects
-        events = set_ak_column(events, f"{lepton_name}.miniPFRelIso_neutral", lepton.miniPFRelIso_all - lepton.miniPFRelIso_chg)
+        events = set_ak_column(events, f"{lepton_name}.miniPFRelIso_neutral",
+                    lepton.miniPFRelIso_all - lepton.miniPFRelIso_chg)
 
         # absolute eta
         events = set_ak_column(events, f"{lepton_name}.abseta", np.abs(lepton.eta))
@@ -118,11 +118,15 @@ def lepton_mva_producer(self: Calibrator, events: ak.Array, **kwargs) -> ak.Arra
         features = np.transpose(np.array(ak.flatten(features, axis=2)))
         # make c-contiguous (rows are stored as contiguous blocks of memory.)
         features = np.ascontiguousarray(features)
-        # call xgboost predictor
-        scores = self.mva[lepton].inplace_predict(features)
-        # unflatten into an awkward array
-        scores = ak.unflatten(scores, counts)
-        # set the scores as an additional field for muons
+
+        if np.any(features):
+            # call xgboost predictor
+            scores = self.mva[lepton].inplace_predict(features)
+            # unflatten into an awkward array
+            scores = ak.unflatten(scores, counts)
+            # set the scores as an additional field for muons
+        else:
+            scores = ak.zeros_like(events[lepton][lepton_mva_inputs[lepton][0]], dtype=np.float32)
         events = set_ak_column(events, f"{lepton}.mvaTOP", scores)
 
     return events

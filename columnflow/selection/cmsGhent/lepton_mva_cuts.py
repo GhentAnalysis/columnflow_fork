@@ -4,11 +4,14 @@
 Selection modules for object selection of Muon, Electron, and Jet.
 """
 
-from typing import Tuple, Dict
 
+from typing import Tuple, Literal, Dict
+
+# import law
 
 from columnflow.util import maybe_import, four_vec
 from columnflow.columnar_util import set_ak_column, optional_column
+
 from columnflow.selection import Selector, SelectionResult, selector
 from columnflow.selection.util import masked_sorted_indices
 
@@ -43,7 +46,7 @@ def lepton_mva_object(
 
     """
     if isinstance(working_point, str):
-        working_point = {l: working_point for l in ["Muon", "Electron"]}
+        working_point = {lepton: working_point for lepton in ["Muon", "Electron"]}
     if set(working_point.values()) != {"veto"}:
         assert working_point in self.config_inst.x.top_mva_wps
         assert "mvaTOP" in events.Electron.fields
@@ -72,10 +75,10 @@ def lepton_mva_object(
         if "mvaTOP" in lepton.fields:
             wps = self.config_inst.x.top_mva_wps
             for wp in wps:
-                events = set_ak_column(events, f"{lepton_name}.{wp}",
-                                       events[lepton_name]["veto"] &
-                                       (lepton.mvaTOP > wps[wp]),
-                                       )
+                events = set_ak_column(
+                    events, f"{lepton_name}.{wp}",
+                    events[lepton_name]["veto"] & (lepton.mvaTOP > wps[wp]),
+                )
     return events, SelectionResult(
         steps={},
         objects={
