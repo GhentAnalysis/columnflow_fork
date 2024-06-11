@@ -18,14 +18,14 @@ ak = maybe_import("awkward")
 @selector(
     uses=(
         four_vec({"Electron", "Muon"}, {"dxy", "dz", "sip3d", "miniPFRelIso_all"}) |
-            {"Electron.lostHits", "Electron.deltaEtaSC", "Muon.mediumId"} |
-            optional_column("Electron.mvaTOP", "Muon.mvaTOP")
+        {"Electron.lostHits", "Electron.deltaEtaSC", "Muon.mediumId"} |
+        optional_column("Electron.mvaTOP", "Muon.mvaTOP")
     ),
 )
 def lepton_mva_object(
         self: Selector,
         events: ak.Array,
-        working_point: 'Dict[Listeral["Muon", "Electron"], str] | str' = "veto",
+        working_point: 'Dict[Literal["Muon", "Electron"], str] | str' = "veto",
         **kwargs,
 ) -> Tuple[ak.Array, SelectionResult]:
     """
@@ -50,7 +50,7 @@ def lepton_mva_object(
         assert "mvaTOP" in events.Muon.fields
 
     # conditions differing for muons and leptons
-    ele, events.Electron, events.Muon
+    ele, mu = events.Electron, events.Muon
     ele_absetaSC = abs(ele.eta + ele.deltaEtaSC)
     masks = {
         "Electron": (abs(ele.eta) < 2.5) & (ele.lostHits < 2) & ((ele_absetaSC > 1.5560) | (ele_absetaSC < 1.4442)),
@@ -62,10 +62,10 @@ def lepton_mva_object(
         lepton = events[lepton_name]
         veto_mask = masks[lepton_name] & (
             (lepton.pt > 10) &
-                (lepton.miniPFRelIso_all < 0.4) &
-                (lepton.sip3d < 8) &
-                (lepton.dz < 0.1) &
-                (lepton.dxy < 0.05)
+            (lepton.miniPFRelIso_all < 0.4) &
+            (lepton.sip3d < 8) &
+            (lepton.dz < 0.1) &
+            (lepton.dxy < 0.05)
         )
         events = set_ak_column(events, f"{lepton_name}.veto", veto_mask)
         if "mvaTOP" in lepton.fields:
