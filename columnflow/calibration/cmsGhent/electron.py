@@ -273,6 +273,9 @@ def electron_ss_init(self: Calibrator) -> None:
     if sources is None:
         sources = electron_ss_cfg.uncertainty_sources
 
+    if not hasattr(self, "dataset_inst"):
+        return
+
     if self.dataset_inst.is_mc:
 
         self.produces |= {

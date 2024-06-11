@@ -79,6 +79,7 @@ def electron_weights(
     ]:
         # identification & isolation scale factor
 
+        sf_flat = np.ones_like(pt)
         if self.wp:
             sf_flat = self.electron_sf_corrector(self.year, syst, self.wp, sc_eta, pt)
 
