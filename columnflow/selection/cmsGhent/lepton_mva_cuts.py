@@ -53,8 +53,9 @@ def lepton_mva_object(
     ele, mu = events.Electron, events.Muon
     ele_absetaSC = abs(ele.eta + ele.deltaEtaSC)
     masks = {
-        "Electron": (abs(ele.eta) < 2.5) & (ele.lostHits < 2) & ((ele_absetaSC > 1.5560) | (ele_absetaSC < 1.4442)),
-        "Muon": (abs(events.Muon.eta) < 2.4) & events.Muon.mediumId,
+        "Electron": (abs(ele.eta) < 2.5) & (ele.lostHits < 2) & (
+            (ele_absetaSC > 1.5560) | (ele_absetaSC < 1.4442)),
+        "Muon": (abs(mu.eta) < 2.4) & mu.mediumId,
     }
 
     # conditions shared for muons and leptons
