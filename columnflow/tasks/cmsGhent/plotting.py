@@ -10,34 +10,30 @@ from columnflow.util import DotDict
 
 class PlotVariablesCatsPerProcessBase(PlotVariablesBaseSingleShift):
 
-    exclude_index = False
-
-    plot_function = PlotVariables1D.plot_function.copy(
-        default="columnflow.plotting.plot_functions_1d.plot_variable_variants",
-    )
+    exclude_index = True
 
     initial = luigi.Parameter(
         default="incl",
         description="Name of category that is considered as initial reference.",
     )
 
-    @classmethod
-    def resolve_param_values(cls, params):
-        params = super().resolve_param_values(params)
-        if params["initial"] not in params["categories"]:
-            params["categories"] = tuple([params["initial"], *params["categories"]])
-        return params
-
     def create_branch_map(self):
+        cats = self.categories
+        if self.initial not in cats:
+            cats = [self.initial, *cats]
         return [
-            DotDict({"process": proc_name, "variable": var_name})
+            DotDict({
+                "categories": cats,
+                "process": proc_name,
+                "variable": var_name
+            })
             for proc_name in sorted(self.processes)
             for var_name in sorted(self.variables)
         ]
 
     def output(self):
         b = self.branch_data
-        cat_tag = "_".join(self.categories)
+        cat_tag = "_".join(b.categories)
         return {"plots": [
             self.local_target(name)
             for name in self.get_plot_names(f"plot__proc_{b.process}__cat_{cat_tag}__var_{b.variable}")
@@ -57,7 +53,7 @@ class PlotVariablesCatsPerProcessBase(PlotVariablesBaseSingleShift):
             self.config_inst.get_variable(var_name)
             for var_name in variable_tuple
         ]
-        category_insts = [self.config_inst.get_category(c) for c in self.categories]
+        category_insts = [self.config_inst.get_category(c) for c in self.branch_data.categories]
         process_inst = self.config_inst.get_process(self.branch_data.process)
         sub_process_insts = [sub for sub, _, _ in process_inst.walk_processes(include_self=True)]
 
@@ -132,3 +128,13 @@ class PlotVariablesCatsPerProcessBase(PlotVariablesBaseSingleShift):
             # save the plot
             for outp in self.output()["plots"]:
                 outp.dump(fig, formatter="mpl")
+
+
+class PlotVariables1DCatsPerProcess(
+    PlotVariablesCatsPerProcessBase,
+    PlotBase1D,
+):
+    plot_function = PlotBase.plot_function.copy(
+        default="columnflow.plotting.plot_functions_1d.plot_variable_variants",
+    )
+
