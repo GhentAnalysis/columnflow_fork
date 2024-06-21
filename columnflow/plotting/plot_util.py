@@ -11,15 +11,21 @@ import functools
 from collections import OrderedDict
 
 import order as od
+from typing import Tuple
 
 from columnflow.util import maybe_import, try_int, try_complex
-from columnflow.types import Iterable, Any, Callable
+from columnflow.types import Iterable, Any, Callable, Sequence, Union
 
 math = maybe_import("math")
 hist = maybe_import("hist")
 np = maybe_import("numpy")
+npt = maybe_import("numpy.typing")
+np = maybe_import("numpy")
 plt = maybe_import("matplotlib.pyplot")
 mplhep = maybe_import("mplhep")
+
+
+FigAxesType = Tuple[plt.Figure, Union[npt.NDArray[plt.Axes], Sequence[plt.Axes], plt.Axes]]
 
 
 label_options = {

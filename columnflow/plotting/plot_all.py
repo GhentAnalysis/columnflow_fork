@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from columnflow.types import Sequence
 from columnflow.util import maybe_import, try_float
-from columnflow.plotting.plot_util import get_position, get_cms_label
+from columnflow.plotting.plot_util import get_position, get_cms_label, FigAxesType
 
 hist = maybe_import("hist")
 np = maybe_import("numpy")
@@ -162,6 +162,7 @@ def plot_all(
     cms_label: str = "wip",
     whitespace_fraction: float = 0.3,
     magnitudes: float = 4,
+    figaxes: FigAxesType = None,
     **kwargs,
 ) -> tuple(plt.Figure, tuple(plt.Axes)):
     """
@@ -190,6 +191,7 @@ def plot_all(
     the plot will consist of whitespace for the legend and labels
     :param magnitudes: Optional float parameter that defines the displayed ymin when plotting
     with a logarithmic scale.
+    :param figaxes: tuple containing a figure and axes for the plots
     :return: tuple of plot figure and axes
     """
     # available plot methods mapped to their names
@@ -198,15 +200,24 @@ def plot_all(
         for func in [draw_error_bands, draw_stack, draw_hist, draw_profile, draw_errorbars]
     }
 
-    plt.style.use(mplhep.style.CMS)
-
     rax = None
-    if not skip_ratio:
-        fig, axs = plt.subplots(2, 1, gridspec_kw=dict(height_ratios=[3, 1], hspace=0), sharex=True)
-        (ax, rax) = axs
+    if figaxes is None:
+        plt.style.use(mplhep.style.CMS)
+        if not skip_ratio:
+            fig, axs = plt.subplots(2, 1, gridspec_kw=dict(height_ratios=[3, 1], hspace=0), sharex=True)
+            (ax, rax) = axs
+        else:
+            fig, ax = plt.subplots()
+            axs = (ax,)
     else:
-        fig, ax = plt.subplots()
-        axs = (ax,)
+        fig, ax = figaxes
+        if skip_ratio:
+            if not isinstance(ax, plt.Axes):
+                assert len(ax) == 1 and isinstance(ax[0], plt.Axes), f"expected one axes (no ratio) but got {ax}"
+                ax = ax[0]
+        else:
+            assert len(ax) == 2 and all([isinstance(a, plt.Axes) for a in ax]), f"expected two axes (ratio) but got {ax}"
+            ax, rax = ax
 
     for key, cfg in plot_config.items():
         if "method" not in cfg:
