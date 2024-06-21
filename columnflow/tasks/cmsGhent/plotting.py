@@ -25,7 +25,7 @@ class PlotVariablesCatsPerProcessBase(PlotVariablesBaseSingleShift):
             DotDict({
                 "categories": cats,
                 "process": proc_name,
-                "variable": var_name
+                "variable": var_name,
             })
             for proc_name in sorted(self.processes)
             for var_name in sorted(self.variables)
@@ -137,4 +137,3 @@ class PlotVariables1DCatsPerProcess(
     plot_function = PlotBase.plot_function.copy(
         default="columnflow.plotting.plot_functions_1d.plot_variable_variants",
     )
-

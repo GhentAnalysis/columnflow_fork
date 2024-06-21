@@ -131,8 +131,6 @@ def apply_variable_settings(
                 rebin_factor = int(rebin_factor)
                 h = h[{var_inst.name: hist.rebin(rebin_factor)}]
                 hists[proc_inst] = h
-
-
         # overflow and underflow bins
         overflow = getattr(var_inst, "overflow", False) or var_inst.x("overflow", False)
         underflow = getattr(var_inst, "underflow", False) or var_inst.x("underflow", False)
