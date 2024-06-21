@@ -22,8 +22,9 @@ np = maybe_import("numpy")
 npt = maybe_import("numpy.typing")
 np = maybe_import("numpy")
 plt = maybe_import("matplotlib.pyplot")
-mpl= maybe_import("matplotlib")
+mpl = maybe_import("matplotlib")
 mplhep = maybe_import("mplhep")
+mticker = maybe_import("matplotlib.ticker")
 
 
 FigAxesType = Tuple[plt.Figure, Union[npt.NDArray[plt.Axes], Sequence[plt.Axes], plt.Axes]]
@@ -138,8 +139,6 @@ def apply_variable_settings(
                 rebin_factor = int(rebin_factor)
                 h = h[{var_inst.name: hist.rebin(rebin_factor)}]
                 hists[proc_inst] = h
-
-
         # overflow and underflow bins
         overflow = getattr(var_inst, "overflow", False) or var_inst.x("overflow", False)
         underflow = getattr(var_inst, "underflow", False) or var_inst.x("underflow", False)
@@ -763,4 +762,3 @@ def prepare_style_config_2d(
         }
 
     return style_config
-

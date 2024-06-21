@@ -17,8 +17,6 @@ from columnflow.plotting.plot_util import (
     apply_variable_settings,
     apply_process_settings,
     apply_density_to_hists,
-    reduce_with,
-    FigAxesType,
     prepare_plot_config_2d,
     prepare_style_config_2d,
 )
@@ -29,7 +27,6 @@ mpl = maybe_import("matplotlib")
 plt = maybe_import("matplotlib.pyplot")
 mplhep = maybe_import("mplhep")
 od = maybe_import("order")
-mticker = maybe_import("matplotlib.ticker")
 
 
 def plot_2d(
@@ -89,4 +86,3 @@ def plot_2d(
         del style_config["legend_cfg"]
 
     return make_plot_2d(plot_config, style_config)
-

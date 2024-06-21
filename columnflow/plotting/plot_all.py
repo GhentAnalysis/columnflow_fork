@@ -223,7 +223,8 @@ def plot_all(
                 assert len(ax) == 1 and isinstance(ax[0], plt.Axes), f"expected one axes (no ratio) but got {ax}"
                 ax = ax[0]
         else:
-            assert len(ax) == 2 and all([isinstance(a, plt.Axes) for a in ax]), f"expected two axes (ratio) but got {ax}"
+            assert len(ax) == 2 and all([isinstance(a, plt.Axes) for a in ax]), \
+                f"expected two axes (ratio) but got {ax}"
             ax, rax = ax
 
     for key, cfg in plot_config.items():
@@ -341,7 +342,6 @@ def plot_all(
     plt.tight_layout()
 
     return fig, axs
-
 
 
 def make_plot_2d(
