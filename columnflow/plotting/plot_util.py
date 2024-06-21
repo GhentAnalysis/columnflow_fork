@@ -752,19 +752,6 @@ def prepare_style_config_2d(
         },
     }
 
-    label_options = {
-        "wip": "Work in progress",
-        "pre": "Preliminary",
-        "pw": "Private work",
-        "sim": "Simulation",
-        "simwip": "Simulation work in progress",
-        "simpre": "Simulation preliminary",
-        "simpw": "Simulation private work",
-        "od": "OpenData",
-        "odwip": "OpenData work in progress",
-        "odpw": "OpenData private work",
-        "public": "",
-    }
     # cms label
     if cms_label != "skip":
         style_config["cms_label_cfg"] = {
