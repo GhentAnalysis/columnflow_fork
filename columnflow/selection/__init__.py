@@ -255,7 +255,7 @@ class SelectionResult(od.AuxDataMixin):
         c = get_content(mask)
         if is_union := isinstance(c, ak.types.UnionType):
             # this might come because 0 or 1 was used instead of True or False: try converting to booleans
-            is_valid = (mask == 1) | (mask == 0) | (mask == False) | (mask == True)
+            is_valid = (mask == 1) | (mask == 0) | (mask == False) | (mask == True) # noqa
             assert ak.all(is_valid), f"mask {name} contains booleans and non-binary values {mask[~is_valid]}"
             mask = ak.values_astype(mask, bool)
             # type is now still Union[...] but of only bool or only ?bool if everything is fine
