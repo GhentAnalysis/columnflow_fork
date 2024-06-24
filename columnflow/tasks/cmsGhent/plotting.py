@@ -158,3 +158,4 @@ class PlotVariables2DMigration(
             for proc_name in sorted(self.processes)
             for var_name in sorted(self.variables)
         ]
+
