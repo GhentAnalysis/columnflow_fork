@@ -5,10 +5,17 @@ Example plot function.
 """
 
 from __future__ import annotations
+from unittest.mock import patch
+from functools import partial
 
 from columnflow.types import Sequence
 from columnflow.util import maybe_import, try_float
-from columnflow.plotting.plot_util import get_position, get_cms_label
+from columnflow.plotting.plot_util import (
+    get_position,
+    get_cms_label,
+    FigAxesType,
+    fix_cbar_minor_ticks,
+)
 
 hist = maybe_import("hist")
 np = maybe_import("numpy")
@@ -86,7 +93,33 @@ def draw_hist(
     norm: float | Sequence | np.ndarray = 1.0,
     **kwargs,
 ) -> None:
+    if kwargs.get("color", "") is None:
+        # when color is set to None, remove it such that matplotlib automatically chooses a color
+        kwargs.pop("color")
+
     h = h / norm
+    defaults = {
+        "ax": ax,
+        "stack": False,
+        "histtype": "step",
+    }
+    defaults.update(kwargs)
+    h.plot1d(**defaults)
+
+
+def draw_profile(
+    ax: plt.Axes,
+    h: hist.Hist,
+    norm: float | Sequence | np.ndarray = 1.0,
+    **kwargs,
+) -> None:
+    """
+    Profiled histograms contains the storage type "Mean" and can therefore not be normalized
+    """
+    if kwargs.get("color", "") is None:
+        # when color is set to None, remove it such that matplotlib automatically chooses a color
+        kwargs.pop("color")
+
     defaults = {
         "ax": ax,
         "stack": False,
@@ -136,6 +169,7 @@ def plot_all(
     cms_label: str = "wip",
     whitespace_fraction: float = 0.3,
     magnitudes: float = 4,
+    figaxes: FigAxesType = None,
     **kwargs,
 ) -> tuple(plt.Figure, tuple(plt.Axes)):
     """
@@ -164,23 +198,34 @@ def plot_all(
     the plot will consist of whitespace for the legend and labels
     :param magnitudes: Optional float parameter that defines the displayed ymin when plotting
     with a logarithmic scale.
+    :param figaxes: tuple containing a figure and axes for the plots
     :return: tuple of plot figure and axes
     """
     # available plot methods mapped to their names
     plot_methods = {
         func.__name__: func
-        for func in [draw_error_bands, draw_stack, draw_hist, draw_errorbars]
+        for func in [draw_error_bands, draw_stack, draw_hist, draw_profile, draw_errorbars]
     }
 
-    plt.style.use(mplhep.style.CMS)
-
     rax = None
-    if not skip_ratio:
-        fig, axs = plt.subplots(2, 1, gridspec_kw=dict(height_ratios=[3, 1], hspace=0), sharex=True)
-        (ax, rax) = axs
+    if figaxes is None:
+        plt.style.use(mplhep.style.CMS)
+        if not skip_ratio:
+            fig, axs = plt.subplots(2, 1, gridspec_kw=dict(height_ratios=[3, 1], hspace=0), sharex=True)
+            (ax, rax) = axs
+        else:
+            fig, ax = plt.subplots()
+            axs = (ax,)
     else:
-        fig, ax = plt.subplots()
-        axs = (ax,)
+        fig, ax = figaxes
+        if skip_ratio:
+            if not isinstance(ax, plt.Axes):
+                assert len(ax) == 1 and isinstance(ax[0], plt.Axes), f"expected one axes (no ratio) but got {ax}"
+                ax = ax[0]
+        else:
+            assert len(ax) == 2 and all([isinstance(a, plt.Axes) for a in ax]), \
+                f"expected two axes (ratio) but got {ax}"
+            ax, rax = ax
 
     for key, cfg in plot_config.items():
         if "method" not in cfg:
@@ -297,3 +342,70 @@ def plot_all(
     plt.tight_layout()
 
     return fig, axs
+
+
+def make_plot_2d(
+    plot_config: dict,
+    style_config: dict,
+    figaxes: FigAxesType | None = None,
+    **kwargs,
+):
+    """
+    Function that makes a 2d plot based on two configuration dictionaries,
+    *plot_config* and *style_config*.
+
+    The *plot_config* contains the fields:
+    "hist": hist.Hist,
+    "kwargs": optional arguments to be passed to the plot_config["hist"].hist2d,
+    "cbar_kwargs": optional arguments to be passed to plt.colorbar (not sure if all will work),
+
+    The *style_config* expects fields (all optional):
+    "ax_cfg": dict,
+    "legend_cfg": dict,
+    "cms_label_cfg": dict,
+    "annotate_cfg": dict
+
+    :param plot_config: Dictionary with the histogram to be plotted and how (includes colorbar)
+    :param style_config: Dictionary that defines arguments on how to style the overall plot.
+    :param figaxes: tuple containing a figure and axes for the plots
+    :return: tuple of plot figure and axes
+    """
+
+    if figaxes is None:
+        # use CMS plotting style
+        plt.style.use(mplhep.style.CMS)
+        fig, ax = plt.subplots()
+    else:
+        fig, ax = figaxes
+        assert isinstance(ax, plt.Axes), f"expected one single axes but got {ax}"
+
+    # apply style_config
+    if ax_cfg := style_config.get("ax_cfg", {}):
+        for tickname in ["xticks", "yticks"]:
+            ticks = ax_cfg.pop(tickname)
+            for ticksize in ["major", "minor"]:
+                if subticks := ticks.get(ticksize, {}):
+                    getattr(ax, "set_" + tickname)(**subticks, minor=ticksize == "minor")
+        ax.set(**ax_cfg)
+
+    if "legend_cfg" in style_config:
+        ax.legend(**style_config["legend_cfg"])
+
+    # annotation of category label
+    if annotate_kwargs := style_config.get("annotate_cfg", {}):
+        ax.annotate(**annotate_kwargs)
+
+    if cms_label_kwargs := style_config.get("cms_label_cfg", {}):
+        mplhep.cms.label(ax=ax, **cms_label_kwargs)
+
+    # call plot method, patching the colorbar function
+    # called internally by mplhep to draw the extension symbols
+    with patch.object(plt, "colorbar", partial(plt.colorbar, **plot_config.get("cbar_kwargs", {}))):
+        plot_config["hist"].plot2d(ax=ax, **plot_config.get("kwargs", {}))
+
+    if plot_config.get("kwargs", {}).get("cbar", False):
+        # fix color bar minor ticks with SymLogNorm
+        fix_cbar_minor_ticks(ax.collections[0].colorbar)
+
+    fig.tight_layout()
+    return fig, (ax,)

@@ -10,7 +10,7 @@ import os
 import time
 import shutil
 import subprocess
-
+import glob
 import luigi
 import law
 import order as od
@@ -103,7 +103,10 @@ class GetDatasetLFNs(DatasetTask, law.tasks.TransferLocalFile):
         lfns = []
         for key in sorted(self.dataset_info_inst.keys):
             self.logger.info(f"get lfns for dataset key {key} {msg}")
-            lfns.extend(get_dataset_lfns(self.dataset_inst, self.global_shift_inst, key))
+            if msg == "via dasgoclient":
+                lfns.extend(get_dataset_lfns(self.dataset_inst, self.global_shift_inst, key))
+            else:
+                lfns.extend(get_dataset_lfns(self, key))
 
         if self.validate and len(lfns) != self.dataset_info_inst.n_files:
             raise ValueError(
@@ -116,6 +119,18 @@ class GetDatasetLFNs(DatasetTask, law.tasks.TransferLocalFile):
         tmp = law.LocalFileTarget(is_tmp=True)
         tmp.dump(lfns, indent=4, formatter="json")
         self.transfer(tmp)
+
+    def custom_get_dataset_lfns(
+        self,
+        dataset_key: str,
+    ) -> list[str]:
+        """
+        Function to get the LFN information for custom datasets
+        The path of custom files have to be given in law.cfg file as [custom_pnfs_fs]
+        """
+        base = law.config.get_expanded("custom_pnfs_fs", "base")
+        out = glob.glob(f"{base}{dataset_key}/*/*/*.root")
+        return out
 
     def get_dataset_lfns_dasgoclient(
         self,
@@ -222,15 +237,16 @@ class GetDatasetLFNs(DatasetTask, law.tasks.TransferLocalFile):
 
                 # measure the time required to perform the stat query
                 logger.debug(f"checking fs {selected_fs} for lfn {lfn}")
-                input_file = target_cls(lfn, fs=selected_fs)
+                input_file = target_cls(lfn.lstrip(os.sep) if is_local else lfn, fs=selected_fs)
                 t1 = time.perf_counter()
                 input_stat = input_file.exists(stat=True)
                 duration = time.perf_counter() - t1
                 i += 1
                 logger.info(f"file {lfn} does{'' if input_stat else ' not'} exist at fs {selected_fs}")
 
-                # when the stat query took longer than 2 seconds, eagerly try the next fs
+                # when the stat query took longer than some duration, eagerly try the next fs
                 # and check if it responds faster and if so, take it instead
+                latency = 4.0  # s
                 if input_stat and eager_lookup:
                     if (
                         isinstance(eager_lookup, int) and
@@ -239,9 +255,11 @@ class GetDatasetLFNs(DatasetTask, law.tasks.TransferLocalFile):
                     ):
                         logger.debug(f"eager fs lookup skipped for fs {selected_fs} at index {i}")
                     else:
-                        if input_stat and not last_working and duration > 2.0 and i < len(fs):
+                        if input_stat and not last_working and duration > latency and i < len(fs):
                             last_working = selected_fs, input_file, input_stat, duration
-                            logger.debug("duration exceeded 2s, checking next fs for comparison")
+                            logger.debug(
+                                f"duration exceeded {latency}s, checking next fs for comparison",
+                            )
                             continue
                         if last_working and (not input_stat or last_working[3] < duration):
                             logger.debug("previously checked fs responded faster")

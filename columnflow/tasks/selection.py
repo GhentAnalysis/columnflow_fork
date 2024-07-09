@@ -4,6 +4,7 @@
 Tasks related to selecting events and performing post-selection bookkeeping.
 """
 
+import copy
 from collections import defaultdict
 
 import law
@@ -300,8 +301,8 @@ class MergeSelectionStats(
     DatasetTask,
     law.tasks.ForestMerge,
 ):
-    # recursively merge 20 files into one
-    merge_factor = 20
+    # merge 25 stats files into 1 at every step of the merging cascade
+    merge_factor = 25
 
     # skip receiving some parameters via req
     exclude_params_req_get = {"workflow"}
@@ -353,11 +354,11 @@ class MergeSelectionStats(
         *dst* is updated in-place and also returned.
         """
         for key, obj in src.items():
-            if isinstance(obj, dict):
-                cls.merge_counts(dst.setdefault(key, {}), obj)
+            if key not in dst:
+                dst[key] = copy.deepcopy(obj)
+            elif isinstance(obj, dict):
+                cls.merge_counts(dst[key], obj)
             else:
-                if key not in dst:
-                    dst[key] = 0.0
                 dst[key] += obj
         return dst
 
@@ -462,13 +463,21 @@ class MergeSelectionMasks(
             )
 
         # define columns that will be written
-        write_columns = mandatory_coffea_columns
-        write_columns |= {"category_ids", "process_id", "normalization_weight"}
+        write_columns: set[Route] = set()
+        skip_columns: set[str] = set()
         for c in self.config_inst.x.keep_columns.get(self.task_family, []):
-            if isinstance(c, ColumnCollection):
-                write_columns |= self.find_keep_columns(c)
-            else:
-                write_columns.add(Route(c))
+            for r in (self.find_keep_columns(c) if isinstance(c, ColumnCollection) else {Route(c)}):
+                if r.has_tag("skip"):
+                    skip_columns.add(r.column)
+                else:
+                    write_columns.add(r)
+        write_columns = {
+            r for r in write_columns
+            if not law.util.multi_match(r.column, skip_columns, mode=any)
+        }
+        # add some mandatory columns
+        write_columns |= set(map(Route, mandatory_coffea_columns))
+        write_columns |= set(map(Route, {"category_ids", "process_id", "normalization_weight"}))
         route_filter = RouteFilter(write_columns)
 
         for inp in inputs:

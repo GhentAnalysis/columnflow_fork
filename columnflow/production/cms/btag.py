@@ -67,7 +67,8 @@ def btag_weights(
     Supported modes are:
 
         - "ignore": the *jet_mask* is extended to exclude jets with b_score < 0
-        - "remove": the btag_weight is set to 0 for jets with b_score < 0
+        - "remove": the scale factor is set to 0 for jets with b_score < 0, resulting in an overall
+            btag_weight of 0 for the event
         - "raise": an exception is raised
 
     The verbosity of the handling of jets with negative b-score can be
@@ -80,8 +81,8 @@ def btag_weights(
 
     Resources:
 
-       - https://twiki.cern.ch/twiki/bin/view/CMS/BTagShapeCalibration?rev=26
-       - https://indico.cern.ch/event/1096988/contributions/4615134/attachments/2346047/4000529/Nov21_btaggingSFjsons.pdf
+        - https://twiki.cern.ch/twiki/bin/view/CMS/BTagShapeCalibration?rev=26
+        - https://indico.cern.ch/event/1096988/contributions/4615134/attachments/2346047/4000529/Nov21_btaggingSFjsons.pdf
     """
     known_actions = ("ignore", "remove", "raise")
     if negative_b_score_action not in known_actions:
@@ -168,7 +169,7 @@ def btag_weights(
         # enforce the correct shape and create the product over all jets per event
         sf = layout_ak_array(sf_flat_all, events.Jet.pt)
 
-        if negative_b_score_log_mode == "remove":
+        if negative_b_score_action == "remove":
             # set the weight to 0 for jets with negative btag score
             sf = ak.where(jets_negative_b_score, 0, sf)
 
@@ -179,7 +180,7 @@ def btag_weights(
 
     # when the requested uncertainty is a known jec shift, obtain the propagated effect and
     # do not produce additional systematics
-    shift_inst = self.local_shift_inst
+    shift_inst = self.global_shift_inst
     if shift_inst.is_nominal:
         # nominal weight and those of all method intrinsic uncertainties
         events = add_weight("central", None, "btag_weight")
@@ -260,7 +261,7 @@ def btag_weights_init(self: Producer) -> None:
 
     self.uses.add(f"Jet.{self.b_score_column}")
 
-    shift_inst = getattr(self, "local_shift_inst", None)
+    shift_inst = getattr(self, "global_shift_inst", None)
     if not shift_inst:
         return
 
