@@ -265,7 +265,7 @@ class PlotVariables1DMultiVar(MultiVarMixin, PlotVariables1D):
     exclude_index = False
 
     plot_function = PlotVariables1D.plot_function.copy(
-        default="singletop.plotting.plot_multi_variable_variants",
+        default="columnflow.plotting.cmsGhent.plot_functions_1d.plot_multi_variables",
     )
 
     skip_ratio = PlotVariables1D.skip_ratio.copy(
@@ -328,7 +328,7 @@ class PlotROC(MultiVarMixin, PlotVariablesBaseSingleShift):
     exclude_index = False
 
     plot_function = PlotBase.plot_function.copy(
-        default="singletop.plotting.plot_roc",
+        default="columnflow.plotting.cmsGhent.plot_functions_1d.plot_roc",
         add_default_to_description=True,
     )
 
