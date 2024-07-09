@@ -68,8 +68,8 @@ def lepton_mva_object(
             (lepton.pt > 10) &
             (lepton.miniPFRelIso_all < 0.4) &
             (lepton.sip3d < 8) &
-            (lepton.dz < 0.1) &
-            (lepton.dxy < 0.05)
+            (abs(lepton.dz) < 0.1) &
+            (abs(lepton.dxy) < 0.05)
         )
         events = set_ak_column(events, f"{lepton_name}.veto", veto_mask)
         if "mvaTOP" in lepton.fields:
