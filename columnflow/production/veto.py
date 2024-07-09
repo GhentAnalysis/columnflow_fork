@@ -1,4 +1,3 @@
-# from collections import defaultdict
 
 from columnflow.production import Producer, producer
 from columnflow.util import maybe_import, InsertableDict

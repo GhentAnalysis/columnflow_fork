@@ -3,10 +3,10 @@ from collections import defaultdict, OrderedDict
 from scinum import Number
 
 
+
 from columnflow.tasks.cutflow import (
     RemoteWorkflow, Requirements, MergeCutflowHistograms,
 )
-# from columnflow.tasks.framework.decorators import view_output_plots
 from columnflow.tasks.framework.mixins import (
     CalibratorsMixin, SelectorStepsMixin, CategoriesMixin, DatasetsProcessesMixin,
 )
@@ -14,7 +14,6 @@ from columnflow.tasks.framework.mixins import (
 import luigi
 import law
 from columnflow.util import maybe_import, dev_sandbox, try_int
-# from columnflow.util import DotDict
 
 np = maybe_import("numpy")
 

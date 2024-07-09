@@ -4,14 +4,14 @@
 Selection modules for object selection of Muon, Electron, and Jet.
 """
 
-# from collections import defaultdict
+
 from typing import Tuple, Literal, Dict
 
 # import law
 
 from columnflow.util import maybe_import, four_vec
 from columnflow.columnar_util import set_ak_column, optional_column
-# from columnflow.production.util import attach_coffea_behavior
+
 from columnflow.selection import Selector, SelectionResult, selector
 from columnflow.selection.util import masked_sorted_indices
 
@@ -56,7 +56,8 @@ def lepton_mva_object(
     ele, mu = events.Electron, events.Muon
     ele_absetaSC = abs(ele.eta + ele.deltaEtaSC)
     masks = {
-        "Electron": (abs(ele.eta) < 2.5) & (ele.lostHits < 2) & ((ele_absetaSC > 1.5660) | (ele_absetaSC < 1.4442)),
+        "Electron": (abs(ele.eta) < 2.5) & (ele.lostHits < 2) & (
+            (ele_absetaSC > 1.5560) | (ele_absetaSC < 1.4442)),
         "Muon": (abs(mu.eta) < 2.4) & mu.mediumId,
     }
 
@@ -78,7 +79,6 @@ def lepton_mva_object(
                     events, f"{lepton_name}.{wp}",
                     events[lepton_name]["veto"] & (lepton.mvaTOP > wps[wp]),
                 )
-
     return events, SelectionResult(
         steps={},
         objects={

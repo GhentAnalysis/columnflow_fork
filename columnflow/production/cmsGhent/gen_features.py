@@ -1,12 +1,7 @@
-# from collections import defaultdict
-# from typing import Tuple
-
-# import law
 
 from columnflow.util import maybe_import, four_vec
 from columnflow.columnar_util import set_ak_column
 from columnflow.production import Producer, producer
-# from columnflow.columnar_util_Ghent import TetraVec
 
 np = maybe_import("numpy")
 ak = maybe_import("awkward")
