@@ -91,10 +91,10 @@ def plot_multi_variables(
             "kwargs": {
                 "norm": norm,
                 "label": variable_inst.x_title_short,
-            },
+            } | variable_inst.aux.get("plot_kwargs", {}),
             "ratio_kwargs": {
                 "norm": hists[initial].values(),
-            },
+            } | variable_inst.aux.get("plot_kwargs", {}),
         }
         if hide_errors:
             for key in ("kwargs", "ratio_kwargs"):
