@@ -181,38 +181,45 @@ def plot_roc(
 
     remove_residual_axis(hists, "shift")
 
-    if switch:
-        variable_insts_groups = [variable_insts[:2][::-1] for variable_insts in variable_insts_groups]
-
     plot_config = {}
     for variable_insts in variable_insts_groups:
-        refvr = variable_insts[0]
-        group_name = refvr.x.x_title_multi
+        for variable_inst in variable_insts:
+            if group_name := getattr(variable_inst, "x_title_multi", variable_inst.aux.get("x_title_multi")):
+                break
+        else:
+            raise AssertionError("provide x_title_multi for at least one variable per pair")
         plot_config[group_name] = {
             "hist": [],
             "method": lambda ax, hist, **kwargs: ax.plot(*hist, **kwargs),
             "kwargs": dict(
-                color=refvr.aux.get("color"),
                 label=group_name,
-            ),
+            ) | variable_insts[1].aux.get("plot_kwargs", {}) | variable_insts[0].aux.get("plot_kwargs", {}),
         }
-        for variable_inst in variable_insts[:2]:
-            hist = apply_variable_settings(
+        for variable_inst in variable_insts:
+            hists |= apply_variable_settings(
                 {variable_inst: hists[variable_inst]},
                 [variable_inst],
                 variable_settings,
-            ).pop(variable_inst)
-            dr = variable_inst.aux.get("cut_direction", "above")
-            if switch:
-                dr = "below" if dr == "above" else "above"
-            cum_hist = cumulate(hist, direction=dr, axis=variable_inst)
-            plot_config[group_name]["hist"].append(cum_hist.values() / np.max(cum_hist.values()))
+            )
+            if dr := getattr(variable_inst, "cut_direction", variable_inst.aux.get("cut_direction")):
+                break
+
+        if dr is None:
+            dr = "above"
+        if switch:
+            dr = "below" if dr == "above" else "above"
+
+        for variable_inst in variable_insts[:2][::-1] if switch else variable_insts[:2]:
+            cum_hist = cumulate(hists[variable_inst], direction=dr, axis=variable_inst)
+            effs = cum_hist.values() / np.max(cum_hist.values())
+            plot_config[group_name]["hist"].append(np.array([0, *effs, 1]))
+    refvrs = variable_insts_groups[0][::-1] if switch else variable_insts_groups[0]
     default_style_config = {
         "ax_cfg": {
             "xlim": (0, 1),
             "ylim": (0, 1),
-            "xlabel": f"{variable_insts_groups[0][0].x_title_short} efficiency",
-            "ylabel": f"{variable_insts_groups[0][1].x_title_short} efficiency",
+            "xlabel": f"{refvrs[0].x_title_short} efficiency",
+            "ylabel": f"{refvrs[1].x_title_short} efficiency",
             "yscale": yscale,
             "xscale": xscale,
         },
