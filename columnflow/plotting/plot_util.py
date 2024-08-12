@@ -16,7 +16,7 @@ import order as od
 import scinum as sn
 from typing import Tuple
 
-from columnflow.util import maybe_import, try_int, try_complex
+from columnflow.util import maybe_import, try_int, try_complex, try_float
 from columnflow.types import Iterable, Any, Callable, Sequence, Union
 
 math = maybe_import("math")
@@ -201,12 +201,12 @@ def apply_process_settings(
         if scale_factor == "stack":
             # compute the scale factor and round
             scale_factor = round_dynamic(get_stack_integral() / h.sum().value)
-        if try_int(scale_factor):
-            scale_factor = int(scale_factor)
+        if try_float(scale_factor):
+            scale_factor = float(scale_factor)
             hists[proc_inst] = h * scale_factor
             proc_inst.label = inject_label(
                 proc_inst.label,
-                rf"$\times${scale_factor}",
+                rf"$\times${scale_factor:.2g}",
                 placeholder="SCALE",
                 before_parentheses=True,
             )
@@ -721,7 +721,7 @@ def prepare_plot_config_2d(
 
     # check h_sum value range
     vmin, vmax = np.nanmin(h_sum.values()), np.nanmax(h_sum.values())
-    vmin, vmax = np.nan_to_num([vmin, vmax], 0)
+    vmin, vmax = [0 if np.isnan(x) else x for x in [vmin, vmax]]
 
     # default to full z range
     if zlim is None:
