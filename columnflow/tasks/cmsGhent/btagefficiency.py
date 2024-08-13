@@ -251,49 +251,49 @@ class CreateBTagEfficiencyHistograms(
         # empty float array to use when input files have no entries
         empty_f32 = ak.Array(np.array([], dtype=np.float32))
 
-        files = [inputs["events"]["collection"][0]["events"].path]
-        for (events, *columns), pos in self.iter_chunked_io(
-            files,
-            source_type=len(files) * ["awkward_parquet"],
-            read_columns=len(files) * [read_columns],
-        ):
-            # optional check for overlapping inputs
-            if self.check_overlapping_inputs:
-                self.raise_if_overlapping([events] + list(columns))
+        with law.localize_file_targets([inputs["events"]["events"]], mode="r") as inps:
+            for (events, *columns), pos in self.iter_chunked_io(
+                [inp.path for inp in inps],
+                source_type=len(inps) * ["awkward_parquet"],
+                read_columns=len(inps) * [read_columns],
+            ):
+                # optional check for overlapping inputs
+                if self.check_overlapping_inputs:
+                    self.raise_if_overlapping([events] + list(columns))
 
-            # add additional columns
-            events = update_ak_array(events, *columns)
+                # add additional columns
+                events = update_ak_array(events, *columns)
 
-            # add Jet.btag column
-            for jet_btag_producer in self.jet_btag_producers:
-                events = jet_btag_producer(events)
-            # add normalization weight
-            if self.dataset_inst.is_mc:
-                events = self.norm_weight_producer(events)
-            weight = ak.flatten(ak.broadcast_arrays(events.normalization_weight, events.Jet.hadronFlavour)[0])
-            fill_kwargs = {
-                # broadcast event weight and process-id to jet weight
-                "hadronFlavour": ak.flatten(events.Jet.hadronFlavour),
-            }
-            # loop over Jet variables in which the efficiency is binned
-            for var_inst in variable_insts:
-                expr = var_inst.expression
-                if isinstance(expr, str):
-                    route = Route(expr)
-                    def expr(events, *args, **kwargs):
-                        if len(events) == 0 and not has_ak_column(events, route):
-                            return empty_f32
-                        return route.apply(events, null_value=var_inst.null_value)
-                # apply the variable (flatten to fill histogram)
-                fill_kwargs[var_inst.name] = ak.flatten(expr(events))
+                # add Jet.btag column
+                for jet_btag_producer in self.jet_btag_producers:
+                    events = jet_btag_producer(events)
+                # add normalization weight
+                if self.dataset_inst.is_mc:
+                    events = self.norm_weight_producer(events)
+                weight = ak.flatten(ak.broadcast_arrays(events.normalization_weight, events.Jet.hadronFlavour)[0])
+                fill_kwargs = {
+                    # broadcast event weight and process-id to jet weight
+                    "hadronFlavour": ak.flatten(events.Jet.hadronFlavour),
+                }
+                # loop over Jet variables in which the efficiency is binned
+                for var_inst in variable_insts:
+                    expr = var_inst.expression
+                    if isinstance(expr, str):
+                        route = Route(expr)
+                        def expr(events, *args, **kwargs):
+                            if len(events) == 0 and not has_ak_column(events, route):
+                                return empty_f32
+                            return route.apply(events, null_value=var_inst.null_value)
+                    # apply the variable (flatten to fill histogram)
+                    fill_kwargs[var_inst.name] = ak.flatten(expr(events))
 
-            # fill inclusive histogram
-            histograms["incl"].fill(**fill_kwargs, weight=weight)
+                # fill inclusive histogram
+                histograms["incl"].fill(**fill_kwargs, weight=weight)
 
-            # fill b-tagged histogram (weight jets by 0 or 1)
-            for b_prod in self.jet_btag_producers:
-                histograms[b_prod.name].fill(**fill_kwargs, weight=weight * ak.flatten(events.Jet[b_prod.name]))
-        self.output()["hists"].dump(histograms, formatter="pickle")
+                # fill b-tagged histogram (weight jets by 0 or 1)
+                for b_prod in self.jet_btag_producers:
+                    histograms[b_prod.name].fill(**fill_kwargs, weight=weight * ak.flatten(events.Jet[b_prod.name]))
+            self.output()["hists"].dump(histograms, formatter="pickle")
 
 
 CreateBTagEfficiencyHistogramsWrapper = wrapper_factory(
