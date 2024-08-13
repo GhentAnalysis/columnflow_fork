@@ -17,6 +17,8 @@ from columnflow.tasks.framework.plotting import (
     PlotBase, PlotBase2D,
 )
 
+from columnflow.tasks.histograms import CreateHistograms
+
 from columnflow.weight import WeightProducer
 from columnflow.production import Producer
 from columnflow.tasks.framework.remote import RemoteWorkflow
@@ -42,6 +44,8 @@ class BTagAlgoritmsMixin(ConfigTask):
         parse_empty=True,
     )
 
+    default_variables = ("btag_jet_pt", "btag_jet_eta")
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.btag_configs = {algo: self.strtup_to_cfg(algo) for algo in self.algorithms}
@@ -64,11 +68,26 @@ class BTagAlgoritmsMixin(ConfigTask):
             keyword ``"calibrator_insts"``. See :py:meth:`~.CalibratorsMixin.get_calibrator_insts`
             for more information.
         """
+        redo_default_variables = False
+        if "variables" in params:
+            # when empty, use the config default
+            if not params["variables"]:
+                redo_default_variables = True
+
         params = super().resolve_param_values(params)
 
         config_inst = params.get("config_inst")
         if not config_inst:
             return params
+
+        if redo_default_variables:
+            # when empty, use the config default
+            if config_inst.x("default_btag_variables", ()):
+                params["variables"] = tuple(config_inst.x.default_variables)
+            elif cls.default_variables:
+                params["variables"] = tuple(cls.default_variables)
+            else:
+                raise AssertionError(f"define default btag variables in {cls.__class__} or config {config_inst.name}")
 
         if "algorithm_insts" not in params and "algorithms" in params:
             algorithms = cls.resolve_config_default_and_groups(
@@ -121,31 +140,8 @@ class BTagAlgoritmsMixin(ConfigTask):
 
 class CreateBTagEfficiencyHistograms(
     BTagAlgoritmsMixin,
-    VariablesMixin,
-    WeightProducerMixin,
-    ReducedEventsUser,
-    ChunkedIOMixin,
-    law.LocalWorkflow,
-    RemoteWorkflow,
+    CreateHistograms
 ):
-
-    sandbox = dev_sandbox(law.config.get("analysis", "default_columnar_sandbox"))
-
-    # upstream requirements
-    reqs = Requirements(
-        ReducedEventsUser.reqs,
-        RemoteWorkflow.reqs,
-        ReducedEventsUser=ReducedEventsUser
-    )
-
-    # names of columns that contain category ids
-    # (might become a parameter at some point)
-    category_id_columns = {"category_ids"}
-
-    # register sandbox and shifts found in the chosen weight producer to this task
-    register_weight_producer_sandbox = True
-    register_weight_producer_shifts = True
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -156,30 +152,16 @@ class CreateBTagEfficiencyHistograms(
             cls_dict=dict(add_weights=False, btag_config=self.btag_configs[b_cfg_name], name=self.cfg_to_str)
             )(inst_dict=b_prod_inst_dct) for b_cfg_name in self.btag_configs]
 
-    @law.util.classproperty
-    def mandatory_columns(cls) -> set[str]:
-        return set(cls.category_id_columns) | {"process_id"}
-
     def workflow_requires(self):
         reqs = super().workflow_requires()
-
-        reqs["events"] = self.reqs.ProvideReducedEvents.req(self)
-
-        # requirements don't depend on btag config
         reqs["jet_btag"] = self.jet_btag_producers[0].run_requires()
-        reqs["normalization"] = law.util.make_unique(law.util.flatten(self.weight_producer_inst.run_requires()))
-
         return reqs
 
     def requires(self):
-        return {
-            "events": self.reqs.ProvideReducedEvents.req(self),
-            "normalization": law.util.make_unique(law.util.flatten(self.weight_producer_inst.run_requires())),
-            # requirements don't depend on btag config
-            "jet_btag": self.jet_btag_producers[0].run_requires()
-        }
-
-    workflow_condition = ReducedEventsUser.workflow_condition.copy()
+        reqs = super().requires()
+        # requirements don't depend on btag config
+        reqs["jet_btag"] = self.jet_btag_producers[0].run_requires()
+        return reqs
 
     def output(self):
         return {
@@ -252,7 +234,13 @@ class CreateBTagEfficiencyHistograms(
         # empty float array to use when input files have no entries
         empty_f32 = ak.Array(np.array([], dtype=np.float32))
 
-        with law.localize_file_targets([inputs["events"]["events"], *reader_targets.values()], mode="r") as inps:
+        file_targets = [inputs["events"]["events"]]
+        if self.producer_insts:
+            file_targets.extend([inp["columns"] for inp in inputs["producers"]])
+        if self.ml_model_insts:
+            file_targets.extend([inp["mlcolumns"] for inp in inputs["ml"]])
+
+        with law.localize_file_targets([*file_targets, *reader_targets.values()], mode="r") as inps:
             for (events, *columns), pos in self.iter_chunked_io(
                 [inp.path for inp in inps],
                 source_type=len(inps) * ["awkward_parquet"] + len(reader_targets) * [None],
