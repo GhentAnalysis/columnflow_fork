@@ -11,7 +11,7 @@ from columnflow.tasks.framework.base import (
 )
 from columnflow.tasks.framework.mixins import (
     CalibratorsMixin, SelectorStepsMixin, VariablesMixin,
-    ChunkedIOMixin, DatasetsProcessesMixin,
+    ChunkedIOMixin, DatasetsProcessesMixin, WeightProducerMixin,
 )
 from columnflow.tasks.framework.plotting import (
     PlotBase, PlotBase2D,
@@ -122,6 +122,7 @@ class BTagAlgoritmsMixin(ConfigTask):
 class CreateBTagEfficiencyHistograms(
     BTagAlgoritmsMixin,
     VariablesMixin,
+    WeightProducerMixin,
     ReducedEventsUser,
     ChunkedIOMixin,
     law.LocalWorkflow,
@@ -141,15 +142,12 @@ class CreateBTagEfficiencyHistograms(
     # (might become a parameter at some point)
     category_id_columns = {"category_ids"}
 
+    # register sandbox and shifts found in the chosen weight producer to this task
+    register_weight_producer_sandbox = True
+    register_weight_producer_shifts = True
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-        # store the normalization weight producer for MC
-        self.norm_weight_producer = None
-        if self.dataset_inst.is_mc:
-            self.norm_weight_producer = Producer.get_cls("normalization_weights")(
-                inst_dict=self.get_producer_kwargs(self),
-            )
 
         b_prod_class = WeightProducer.get_cls("fixed_wp_btag_weights")
         b_prod_inst_dct = self.get_producer_kwargs(self) | dict(add_weights=False)
@@ -205,12 +203,12 @@ class CreateBTagEfficiencyHistograms(
 
         tmp_dir = law.LocalDirectoryTarget(is_tmp=True)
         tmp_dir.touch()
-        # setup the normalization weights & jet btag producer
-        if self.dataset_inst.is_mc:
-            self.norm_weight_producer.run_setup(
-                self.requires()["normalization"],
-                self.input()["normalization"],
-            )
+
+        # run the weight_producer setup
+        producer_reqs = self.weight_producer_inst.run_requires()
+        reader_targets = self.weight_producer_inst.run_setup(producer_reqs, luigi.task.getpaths(producer_reqs))
+
+        # run the jet tagging setup
         for jet_btag_producer in self.jet_btag_producers:
             jet_btag_producer.run_setup(
                 self.requires()["jet_btag"],
@@ -237,12 +235,14 @@ class CreateBTagEfficiencyHistograms(
         for hist_name in ["incl"] + [b_prod.name for b_prod in self.jet_btag_producers]:
             histograms[hist_name] = h.Weight()
 
+        # empty float array to use when input files have no entries
+        empty_f32 = ak.Array(np.array([], dtype=np.float32))
+
         # define columns that need to be read
         read_columns = {"category_ids", "process_id"}
+        read_columns |= set(self.weight_producer_inst.used_columns)
         for jet_btag_producer in self.jet_btag_producers:
             read_columns |= jet_btag_producer.uses
-        if self.dataset_inst.is_mc:
-            read_columns |= self.norm_weight_producer.used_columns
 
         # add column of the b-tagging algorithm, Jet Genlvl matching & GenJet hadronflavour
         read_columns |= four_vec({"Jet"}, {"hadronFlavour"})
@@ -251,11 +251,12 @@ class CreateBTagEfficiencyHistograms(
         # empty float array to use when input files have no entries
         empty_f32 = ak.Array(np.array([], dtype=np.float32))
 
-        with law.localize_file_targets([inputs["events"]["events"]], mode="r") as inps:
+        with law.localize_file_targets([inputs["events"]["events"], *reader_targets.values()], mode="r") as inps:
             for (events, *columns), pos in self.iter_chunked_io(
                 [inp.path for inp in inps],
-                source_type=len(inps) * ["awkward_parquet"],
-                read_columns=len(inps) * [read_columns],
+                source_type=len(inps) * ["awkward_parquet"] + len(reader_targets) * [None],
+                read_columns=(len(inps) + len(reader_targets)) * [read_columns],
+                chunk_size=self.weight_producer_inst.get_min_chunk_size(),
             ):
                 # optional check for overlapping inputs
                 if self.check_overlapping_inputs:
@@ -267,10 +268,14 @@ class CreateBTagEfficiencyHistograms(
                 # add Jet.btag column
                 for jet_btag_producer in self.jet_btag_producers:
                     events = jet_btag_producer(events)
-                # add normalization weight
-                if self.dataset_inst.is_mc:
-                    events = self.norm_weight_producer(events)
-                weight = ak.flatten(ak.broadcast_arrays(events.normalization_weight, events.Jet.hadronFlavour)[0])
+
+                # build the full event weight
+                if not self.weight_producer_inst.skip_func():
+                    events, weight = self.weight_producer_inst(events)
+                else:
+                    weight = ak.Array(np.ones(len(events), dtype=np.float32))
+
+                weight = ak.flatten(ak.broadcast_arrays(weight, events.Jet.hadronFlavour)[0])
                 fill_kwargs = {
                     # broadcast event weight and process-id to jet weight
                     "hadronFlavour": ak.flatten(events.Jet.hadronFlavour),
