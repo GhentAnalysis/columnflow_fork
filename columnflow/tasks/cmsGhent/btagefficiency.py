@@ -17,6 +17,7 @@ from columnflow.tasks.framework.plotting import (
     PlotBase, PlotBase2D,
 )
 
+from columnflow.weight import WeightProducer
 from columnflow.production import Producer
 from columnflow.tasks.framework.remote import RemoteWorkflow
 from columnflow.tasks.selection import MergeSelectionStats
@@ -65,7 +66,7 @@ class BTagAlgoritmsMixin(ConfigTask):
         if config_inst:
             params["algorithms"] = cls.resolve_config_default_and_groups(
                 params,
-                params.get(""),
+                params.get("algorithms"),
                 container=config_inst,
                 default_str="default_btagAlgorithm",
                 groups_str="btagAlgorithm_groups",
@@ -87,9 +88,9 @@ class BTagAlgoritmsMixin(ConfigTask):
                     ))
                 else:
                     assert isinstance(algorithm, BTagSFConfig)
+                    btag_configs.append(algorithm)
 
             params["algorithms"] = btag_configs
-
         return params
 
     @classmethod
@@ -142,11 +143,12 @@ class CreateBTagEfficiencyHistograms(
                 inst_dict=self.get_producer_kwargs(self),
             )
 
-        b_prod_class = Producer.get_cls("fixed_wp_btag_weights")
+        b_prod_class = WeightProducer.get_cls("fixed_wp_btag_weights")
         b_prod_inst_dct = self.get_producer_kwargs(self) | dict(add_weights=False)
-        self.jet_btag_producers: list[Producer] = [b_prod_class(
-            inst_dict=b_prod_inst_dct | dict(btag_config=algo, name=self.cfg_to_str)
-        ) for algo in self.algorithms]
+        self.jet_btag_producers: list[WeightProducer] = [b_prod_class.derive(
+            cls_name=self.cfg_to_str(algo),
+            cls_dict=dict(add_weights=False, btag_config=algo, name=self.cfg_to_str)
+            )(inst_dict=b_prod_inst_dct) for algo in self.algorithms]
 
     @law.util.classproperty
     def mandatory_columns(cls) -> set[str]:
@@ -431,16 +433,16 @@ class BTagEfficiency(
 
     def create_branch_map(self):
         # create a dummy branch map so that this task could be submitted as a job
-        return [{"algoritm": algo} for algo in sorted(self.algorithms, key=self.cfg_to_str)]
+        return [DotDict({"algorithm": algo}) for algo in sorted(self.algorithms, key=self.cfg_to_str)]
 
     def output(self):
-        folder = f"{self.datasets_repr}/alg_{self.cfg_to_str(self.branch.algorithm)}"
+        folder = f"{self.datasets_repr}/alg_{self.cfg_to_str(self.branch_data.algorithm)}"
         return {
-            "stats": self.target(f"{folder}/btagging_efficiency.json"),
+            "stats": self.target(f"{folder}__btagging_efficiency.json"),
             "plots": [
-                self.target(f"{folder}/btagging_efficiency__udsg_hadronflavour.pdf"),
-                self.target(f"{folder}/btagging_efficiency__c_hadronflavour.pdf"),
-                self.target(f"{folder}/btagging_efficiency__b_hadronflavour.pdf"),
+                self.target(f"{folder}__btagging_efficiency__udsg_hadronflavour.pdf"),
+                self.target(f"{folder}__btagging_efficiency__c_hadronflavour.pdf"),
+                self.target(f"{folder}__btagging_efficiency__b_hadronflavour.pdf"),
             ],
         }
 
@@ -459,8 +461,8 @@ class BTagEfficiency(
 
         variable_insts = list(map(self.config_inst.get_variable, self.variables))
         process_insts = list(map(self.config_inst.get_process, self.processes))
-        btagAlgorithm = self.branch.algorithm.correction_set
-        wp = self.branch.algorithm.corrector_kwargs["working_point"]
+        btagAlgorithm = self.branch_data.algorithm.correction_set
+        wp = self.branch_data.algorithm.corrector_kwargs["working_point"]
         # histogram for the tagged and all jets (combine all datasets)
         hists = {}
 
@@ -485,7 +487,7 @@ class BTagEfficiency(
             )
 
         # combine tagged and inclusive histograms to an efficiency histogram
-        algo_str = self.cfg_to_str(self.branch.algorithm)
+        algo_str = self.cfg_to_str(self.branch_data.algorithm)
         efficiency_hist = hist.Hist(
             *hists[algo_str].axes[:],
             data=hists[algo_str].values() / hists["incl"].values()
