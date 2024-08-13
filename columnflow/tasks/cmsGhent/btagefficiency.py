@@ -42,6 +42,8 @@ class BTagAlgoritmsMixin(ConfigTask):
         parse_empty=True,
     )
 
+    default_variables = ("btag_jet_pt", "btag_jet_eta")
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.btag_configs = dict(zip(self.algorithms, self.algorithm_insts))
@@ -64,11 +66,26 @@ class BTagAlgoritmsMixin(ConfigTask):
             keyword ``"calibrator_insts"``. See :py:meth:`~.CalibratorsMixin.get_calibrator_insts`
             for more information.
         """
+        redo_default_variables = False
+        if "variables" in params:
+            # when empty, use the config default
+            if not params["variables"]:
+                redo_default_variables = True
+
         params = super().resolve_param_values(params)
 
         config_inst = params.get("config_inst")
         if not config_inst:
             return params
+
+        if redo_default_variables:
+            # when empty, use the config default
+            if config_inst.x("default_btag_variables", ()):
+                params["variables"] = tuple(config_inst.x.default_variables)
+            elif cls.default_variables:
+                params["variables"] = tuple(cls.default_variables)
+            else:
+                raise AssertionError(f"define default btag variables in {cls.__class__} or config {config_inst.name}")
 
         if "algorithm_insts" not in params and "algorithms" in params:
             algorithms = cls.resolve_config_default_and_groups(
