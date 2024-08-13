@@ -235,9 +235,6 @@ class CreateBTagEfficiencyHistograms(
         for hist_name in ["incl"] + [b_prod.name for b_prod in self.jet_btag_producers]:
             histograms[hist_name] = h.Weight()
 
-        # empty float array to use when input files have no entries
-        empty_f32 = ak.Array(np.array([], dtype=np.float32))
-
         # get shift dependent aliases
         aliases = self.local_shift_inst.x("column_aliases", {})
 
