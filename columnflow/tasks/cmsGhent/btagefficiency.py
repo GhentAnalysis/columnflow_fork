@@ -5,7 +5,10 @@ import law
 import order as od
 from collections import OrderedDict
 
-from columnflow.tasks.framework.base import Requirements, AnalysisTask, DatasetTask, wrapper_factory
+from columnflow.tasks.framework.base import (
+    Requirements, AnalysisTask, DatasetTask,
+    wrapper_factory, RESOLVE_DEFAULT, ConfigTask
+)
 from columnflow.tasks.framework.mixins import (
     CalibratorsMixin, SelectorStepsMixin, VariablesMixin,
     ChunkedIOMixin, DatasetsProcessesMixin,
@@ -18,14 +21,95 @@ from columnflow.production import Producer
 from columnflow.tasks.framework.remote import RemoteWorkflow
 from columnflow.tasks.selection import MergeSelectionStats
 from columnflow.tasks.reduction import MergeReducedEvents
-from columnflow.util import dev_sandbox, dict_add_strict, four_vec
+from columnflow.util import dev_sandbox, dict_add_strict, four_vec, DotDict
+from columnflow.types import Any
+from columnflow.production.cms.btag import BTagSFConfig
 
 # discontinued and replaced with producer jet_btag that uses
 # config.x attribute "default_btagAlgorithm" (algorithm, working point).
 # producer jet_btag makes a boolean column Jet.btag
 
 
+class BTagAlgoritmsMixin(ConfigTask):
+
+    algorithms: list[BTagSFConfig] = law.CSVParameter(
+        default=(RESOLVE_DEFAULT,),
+        description="comma-separated names of algorithms to apply as specified: ALGORITHM-WP(-DISCRIMINATOR). "
+                    "The discriminator can be omitted in which case the a default is chosen (see BTagSFConfig) "
+                    "default: 'default_btagAlgorithm' config,",
+        brace_expand=True,
+        parse_empty=True,
+    )
+
+    @classmethod
+    def resolve_param_values(
+        cls,
+        params: law.util.InsertableDict[str, Any],
+    ) -> law.util.InsertableDict[str, Any]:
+        """
+        Resolve values *params* and check against possible default values
+
+        Check the values in *params* against the default value ``"default_btagAlgorithm"`` in the current config inst.
+        For more information, see
+        :py:meth:`~columnflow.tasks.framework.base.ConfigTask.resolve_config_default_and_groups`.
+
+        :param params: Parameter values to resolve
+        :return: Dictionary of parameters that contains the list requested
+            :py:class:`~columnflow.calibration.Calibrator` instances under the
+            keyword ``"calibrator_insts"``. See :py:meth:`~.CalibratorsMixin.get_calibrator_insts`
+            for more information.
+        """
+        params = super().resolve_param_values(params)
+
+        config_inst = params.get("config_inst")
+        if config_inst:
+            params["algorithms"] = cls.resolve_config_default_and_groups(
+                params,
+                params.get(""),
+                container=config_inst,
+                default_str="default_btagAlgorithm",
+                groups_str="btagAlgorithm_groups",
+            )
+            btag_configs = []
+            for algorithm in params["algorithms"]:
+                if isinstance(algorithm, str):
+                    algorithm = tuple(algorithm.split("-"))
+                if isinstance(algorithm, tuple):
+                    if len(algorithm) == 2:
+                        algorithm = [*algorithm, None]
+                    elif len(algorithm) != 3:
+                        raise AssertionError(f"{algorithm} should be of form ALGO-WP(-DISCRIMINATOR)")
+                    btag_configs.append(BTagSFConfig(
+                        correction_set=algorithm[0],
+                        jec_sources=[],
+                        discriminator=algorithm[2],
+                        corrector_kwargs=dict(working_point=algorithm[1])
+                    ))
+                else:
+                    assert isinstance(algorithm, BTagSFConfig)
+
+            params["algorithms"] = btag_configs
+
+        return params
+
+    @classmethod
+    def cfg_to_str(cls, b_cfg: BTagSFConfig):
+        return f"{b_cfg.correction_set}_{b_cfg.corrector_kwargs['working_point']}_{b_cfg.discriminator}"
+
+    @property
+    def algorithms_str(self):
+        return [self.cfg_to_str(algo) for algo in self.algorithms]
+
+    @property
+    def algorithms_repr(self):
+        str_repr = self.algorithms_str
+        if len(str_repr) == 1:
+            return str_repr[0]
+        return f"{len(str_repr)}_{law.util.create_hash(sorted(str_repr))}"
+
+
 class CreateBTagEfficiencyHistograms(
+    BTagAlgoritmsMixin,
     MergeReducedEvents,
     VariablesMixin,
     SelectorStepsMixin,
@@ -57,9 +141,12 @@ class CreateBTagEfficiencyHistograms(
             self.norm_weight_producer = Producer.get_cls("normalization_weights")(
                 inst_dict=self.get_producer_kwargs(self),
             )
-        self.jet_btag_producer = Producer.get_cls("jet_btag")(
-            inst_dict=self.get_producer_kwargs(self),
-        )
+
+        b_prod_class = Producer.get_cls("fixed_wp_btag_weights")
+        b_prod_inst_dct = self.get_producer_kwargs(self) | dict(add_weights=False)
+        self.jet_btag_producers: list[Producer] = [b_prod_class(
+            inst_dict=b_prod_inst_dct | dict(btag_config=algo, name=self.cfg_to_str)
+        ) for algo in self.algorithms]
 
     @law.util.classproperty
     def mandatory_columns(cls) -> set[str]:
@@ -75,7 +162,8 @@ class CreateBTagEfficiencyHistograms(
         if self.dataset_inst.is_mc:
             reqs["normalization"] = self.norm_weight_producer.run_requires()
 
-        reqs["jet_btag"] = self.jet_btag_producer.run_requires()
+        # requirements don't depend on btag config
+        reqs["jet_btag"] = self.jet_btag_producers[0].run_requires()
 
         return reqs
 
@@ -89,13 +177,16 @@ class CreateBTagEfficiencyHistograms(
         if self.dataset_inst.is_mc:
             reqs["normalization"] = self.norm_weight_producer.run_requires()
 
-        reqs["jet_btag"] = self.jet_btag_producer.run_requires()
+        # requirements don't depend on btag config
+        reqs["jet_btag"] = self.jet_btag_producers[0].run_requires()
 
         return reqs
 
     def output(self):
         return {
-            "hists": self.target(f"histograms__var_{self.variables_repr}__{self.branch}.pickle"),
+            "hists": self.target(
+                f"histograms__algo_{self.algorithms_repr}__var_{self.variables_repr}__{self.branch}.pickle"
+            ),
         }
 
     @law.decorator.log
@@ -119,10 +210,11 @@ class CreateBTagEfficiencyHistograms(
                 self.requires()["normalization"],
                 self.input()["normalization"],
             )
-        self.jet_btag_producer.run_setup(
-            self.requires()["jet_btag"],
-            self.input()["jet_btag"],  # input does not matter
-        )
+        for jet_btag_producer in self.jet_btag_producers:
+            jet_btag_producer.run_setup(
+                self.requires()["jet_btag"],
+                self.input()["jet_btag"],  # input does not matter
+            )
 
         # declare output: dict of histograms
         histograms = {}
@@ -140,12 +232,14 @@ class CreateBTagEfficiencyHistograms(
                 label=var_inst.get_full_x_title(),
             )
 
-        # add two histograms (for nomerator and denominator)
-        for hist_name in ("tag", "incl"):
+        # add two histograms (for numerator and denominator)
+        for hist_name in ["incl"] + [b_prod.name for b_prod in self.jet_btag_producers]:
             histograms[hist_name] = h.Weight()
 
         # define columns that need to be read
-        read_columns = {"category_ids", "process_id"} | self.jet_btag_producer.uses
+        read_columns = {"category_ids", "process_id"}
+        for jet_btag_producer in self.jet_btag_producers:
+            read_columns |= jet_btag_producer.uses
         if self.dataset_inst.is_mc:
             read_columns |= self.norm_weight_producer.used_columns
 
@@ -170,13 +264,14 @@ class CreateBTagEfficiencyHistograms(
             events = update_ak_array(events, *columns)
 
             # add Jet.btag column
-            events = self.jet_btag_producer(events)
+            for jet_btag_producer in self.jet_btag_producers:
+                events = jet_btag_producer(events)
             # add normalization weight
             if self.dataset_inst.is_mc:
                 events = self.norm_weight_producer(events)
+            weight = ak.flatten(ak.broadcast_arrays(events.normalization_weight, events.Jet.hadronFlavour)[0])
             fill_kwargs = {
                 # broadcast event weight and process-id to jet weight
-                "weight": ak.flatten(ak.broadcast_arrays(events.normalization_weight, events.Jet.hadronFlavour)[0]),
                 "hadronFlavour": ak.flatten(events.Jet.hadronFlavour),
             }
             # loop over Jet variables in which the efficiency is binned
@@ -192,11 +287,11 @@ class CreateBTagEfficiencyHistograms(
                 fill_kwargs[var_inst.name] = ak.flatten(expr(events))
 
             # fill inclusive histogram
-            histograms["incl"].fill(**fill_kwargs)
+            histograms["incl"].fill(**fill_kwargs, weight=weight)
 
             # fill b-tagged histogram (weight jets by 0 or 1)
-            fill_kwargs["weight"] = fill_kwargs["weight"] * ak.flatten(events.Jet.btag)
-            histograms["tag"].fill(**fill_kwargs)
+            for b_prod in self.jet_btag_producers:
+                histograms[b_prod.name].fill(**fill_kwargs, weight=weight * ak.flatten(events.Jet[b_prod.name]))
         self.output()["hists"].dump(histograms, formatter="pickle")
 
 
@@ -208,6 +303,7 @@ CreateBTagEfficiencyHistogramsWrapper = wrapper_factory(
 
 
 class MergeBTagEfficiencyHistograms(
+    BTagAlgoritmsMixin,
     VariablesMixin,
     SelectorStepsMixin,
     CalibratorsMixin,
@@ -255,13 +351,15 @@ class MergeBTagEfficiencyHistograms(
         )
 
     def output(self):
-        return {
-            "hists": self.target(f"hist__var_{self.variables_repr}.pickle"),
-        }
+        return {"hists": law.SiblingFileCollection({
+            algo: self.target(f"hist__{algo}.pickle")
+            for algo in self.algorithms_str
+        } | {"incl": self.target(f"hist__incl.pickle")}
+        )}
 
     @law.decorator.log
     def run(self):
-        # preare inputs and outputs
+        # prepare inputs and outputs
         inputs = self.input()["collection"]
         outputs = self.output()
 
@@ -276,9 +374,8 @@ class MergeBTagEfficiencyHistograms(
         for hist_name in self.iter_progress(hist_names, len(hist_names), reach=(50, 100)):
 
             single_hists = [h[hist_name] for h in hists]
-            merged[hist_name] = sum(single_hists[1:], single_hists[0].copy())
-
-        outputs["hists"].dump(merged, formatter="pickle")
+            merged = sum(single_hists[1:], single_hists[0].copy())
+            outputs["hists"][hist_name].dump(merged, formatter="pickle")
 
         # optionally remove inputs
         if self.remove_previous:
@@ -293,6 +390,7 @@ MergeBTagEfficiencyHistogramsWrapper = wrapper_factory(
 
 
 class BTagEfficiency(
+    BTagAlgoritmsMixin,
     VariablesMixin,
     DatasetsProcessesMixin,
     SelectorStepsMixin,
@@ -317,9 +415,7 @@ class BTagEfficiency(
 
     def workflow_requires(self):
         reqs = super().workflow_requires()
-
         reqs["merged_hists"] = self.requires_from_branch()
-
         return reqs
 
     def requires(self):
@@ -335,10 +431,10 @@ class BTagEfficiency(
 
     def create_branch_map(self):
         # create a dummy branch map so that this task could be submitted as a job
-        return {0: None}
+        return [{"algoritm": algo} for algo in sorted(self.algorithms, key=self.cfg_to_str)]
 
     def output(self):
-        folder = f"{self.datasets_repr}/alg_{'_'.join(self.config_inst.x.default_btagAlgorithm[:2])}"
+        folder = f"{self.datasets_repr}/alg_{self.cfg_to_str(self.branch.algorithm)}"
         return {
             "stats": self.target(f"{folder}/btagging_efficiency.json"),
             "plots": [
@@ -363,7 +459,8 @@ class BTagEfficiency(
 
         variable_insts = list(map(self.config_inst.get_variable, self.variables))
         process_insts = list(map(self.config_inst.get_process, self.processes))
-        btagAlgorithm, wp, _ = self.config_inst.x.default_btagAlgorithm
+        btagAlgorithm = self.branch.algorithm.correction_set
+        wp = self.branch.algorithm.corrector_kwargs["working_point"]
         # histogram for the tagged and all jets (combine all datasets)
         hists = {}
 
@@ -386,8 +483,13 @@ class BTagEfficiency(
                 "  - requested variable requires columns that were missing during histogramming\n" +
                 "  - selected --processes did not match any value on the process axis of the input histogram",
             )
+
         # combine tagged and inclusive histograms to an efficiency histogram
-        efficiency_hist = hist.Hist(*hists["tag"].axes[:], data=hists["tag"].values() / hists["incl"].values())
+        algo_str = self.cfg_to_str(self.branch.algorithm)
+        efficiency_hist = hist.Hist(
+            *hists[algo_str].axes[:],
+            data=hists[algo_str].values() / hists["incl"].values()
+        )
 
         # save as correctionlib file
         efficiency_hist.name = f"{btagAlgorithm}"
