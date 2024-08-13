@@ -238,11 +238,15 @@ class CreateBTagEfficiencyHistograms(
         # empty float array to use when input files have no entries
         empty_f32 = ak.Array(np.array([], dtype=np.float32))
 
+        # get shift dependent aliases
+        aliases = self.local_shift_inst.x("column_aliases", {})
+
         # define columns that need to be read
         read_columns = {"category_ids", "process_id"}
         read_columns |= set(self.weight_producer_inst.used_columns)
         for jet_btag_producer in self.jet_btag_producers:
             read_columns |= jet_btag_producer.uses
+        read_columns |= set(map(Route, aliases.values()))
 
         # add column of the b-tagging algorithm, Jet Genlvl matching & GenJet hadronflavour
         read_columns |= four_vec({"Jet"}, {"hadronFlavour"})
