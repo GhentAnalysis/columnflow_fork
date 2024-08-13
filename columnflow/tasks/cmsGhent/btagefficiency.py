@@ -21,7 +21,7 @@ from columnflow.weight import WeightProducer
 from columnflow.production import Producer
 from columnflow.tasks.framework.remote import RemoteWorkflow
 from columnflow.tasks.selection import MergeSelectionStats
-from columnflow.tasks.reduction import MergeReducedEvents
+from columnflow.tasks.reduction import ReducedEventsUser
 from columnflow.util import dev_sandbox, dict_add_strict, four_vec, DotDict
 from columnflow.types import Any
 from columnflow.production.cms.btag import BTagSFConfig
@@ -111,10 +111,8 @@ class BTagAlgoritmsMixin(ConfigTask):
 
 class CreateBTagEfficiencyHistograms(
     BTagAlgoritmsMixin,
-    MergeReducedEvents,
     VariablesMixin,
-    SelectorStepsMixin,
-    CalibratorsMixin,
+    ReducedEventsUser,
     ChunkedIOMixin,
     law.LocalWorkflow,
     RemoteWorkflow,
@@ -124,9 +122,9 @@ class CreateBTagEfficiencyHistograms(
 
     # upstream requirements
     reqs = Requirements(
-        MergeReducedEvents.reqs,
+        ReducedEventsUser.reqs,
         RemoteWorkflow.reqs,
-        MergeReducedEvents=MergeReducedEvents,
+        ReducedEventsUser=ReducedEventsUser,
         MergeSelectionStats=MergeSelectionStats)
 
     # names of columns that contain category ids
@@ -157,7 +155,8 @@ class CreateBTagEfficiencyHistograms(
     def workflow_requires(self):
         reqs = super().workflow_requires()
 
-        reqs["events"] = self.reqs.MergeReducedEvents.req(self, tree_index=-1)
+        reqs["events"] = self.reqs.ProvideReducedEvents.req(self)
+
         reqs["selection_stats"] = self.reqs.MergeSelectionStats.req(
             self, tree_index=0, branch=-1, _exclude=MergeSelectionStats.exclude_params_forest_merge)
 
@@ -171,7 +170,7 @@ class CreateBTagEfficiencyHistograms(
 
     def requires(self):
         reqs = {
-            "events": self.reqs.MergeReducedEvents.req(self, tree_index=self.branch, _exclude={"branch"}),
+            "events": self.reqs.ProvideReducedEvents.req(self),
             "selection_stats": self.reqs.MergeSelectionStats.req(
                 self, tree_index=0, branch=-1, _exclude=MergeSelectionStats.exclude_params_forest_merge),
         }
@@ -183,6 +182,8 @@ class CreateBTagEfficiencyHistograms(
         reqs["jet_btag"] = self.jet_btag_producers[0].run_requires()
 
         return reqs
+
+    workflow_condition = ReducedEventsUser.workflow_condition.copy()
 
     def output(self):
         return {
