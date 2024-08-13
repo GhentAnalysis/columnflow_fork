@@ -44,7 +44,7 @@ class BTagAlgoritmsMixin(ConfigTask):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.btag_configs = dict(zip(self.algorithms, self.algorithm_insts))
+        self.btag_configs = {algo: self.strtup_to_cfg(algo) for algo in self.algorithms}
 
     @classmethod
     def resolve_param_values(
@@ -85,13 +85,13 @@ class BTagAlgoritmsMixin(ConfigTask):
                 else:
                     assert isinstance(algorithm, BTagSFConfig)
                 btag_configs.append(algorithm)
-            params["algorithms_insts"] = btag_configs
+            params["algorithm_insts"] = btag_configs
             params["algorithms"] = [cls.cfg_to_str(b_cfg) for b_cfg in btag_configs]
         return params
 
     @classmethod
     def cfg_to_str(cls, b_cfg: BTagSFConfig):
-        return f"{b_cfg.correction_set}_{b_cfg.corrector_kwargs['working_point']}_{b_cfg.discriminator}"
+        return f"{b_cfg.correction_set}-{b_cfg.corrector_kwargs['working_point']}-{b_cfg.discriminator}"
 
     @classmethod
     def strtup_to_cfg(cls, b_strtup: str | tuple):
