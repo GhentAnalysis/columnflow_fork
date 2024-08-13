@@ -134,8 +134,8 @@ class CreateBTagEfficiencyHistograms(
     reqs = Requirements(
         ReducedEventsUser.reqs,
         RemoteWorkflow.reqs,
-        ReducedEventsUser=ReducedEventsUser,
-        MergeSelectionStats=MergeSelectionStats)
+        ReducedEventsUser=ReducedEventsUser
+    )
 
     # names of columns that contain category ids
     # (might become a parameter at some point)
@@ -167,31 +167,19 @@ class CreateBTagEfficiencyHistograms(
 
         reqs["events"] = self.reqs.ProvideReducedEvents.req(self)
 
-        reqs["selection_stats"] = self.reqs.MergeSelectionStats.req(
-            self, tree_index=0, branch=-1, _exclude=MergeSelectionStats.exclude_params_forest_merge)
-
-        if self.dataset_inst.is_mc:
-            reqs["normalization"] = self.norm_weight_producer.run_requires()
-
         # requirements don't depend on btag config
         reqs["jet_btag"] = self.jet_btag_producers[0].run_requires()
+        reqs["normalization"] = law.util.make_unique(law.util.flatten(self.weight_producer_inst.run_requires()))
 
         return reqs
 
     def requires(self):
-        reqs = {
+        return {
             "events": self.reqs.ProvideReducedEvents.req(self),
-            "selection_stats": self.reqs.MergeSelectionStats.req(
-                self, tree_index=0, branch=-1, _exclude=MergeSelectionStats.exclude_params_forest_merge),
+            "normalization": law.util.make_unique(law.util.flatten(self.weight_producer_inst.run_requires())),
+            # requirements don't depend on btag config
+            "jet_btag": self.jet_btag_producers[0].run_requires()
         }
-
-        if self.dataset_inst.is_mc:
-            reqs["normalization"] = self.norm_weight_producer.run_requires()
-
-        # requirements don't depend on btag config
-        reqs["jet_btag"] = self.jet_btag_producers[0].run_requires()
-
-        return reqs
 
     workflow_condition = ReducedEventsUser.workflow_condition.copy()
 
