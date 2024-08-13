@@ -33,7 +33,7 @@ from columnflow.production.cms.btag import BTagSFConfig
 
 class BTagAlgoritmsMixin(ConfigTask):
 
-    algorithms: list[BTagSFConfig] = law.CSVParameter(
+    algorithms: list[str] = law.CSVParameter(
         default=(RESOLVE_DEFAULT,),
         description="comma-separated names of algorithms to apply as specified: ALGORITHM-WP(-DISCRIMINATOR). "
                     "The discriminator can be omitted in which case the a default is chosen (see BTagSFConfig) "
@@ -41,6 +41,10 @@ class BTagAlgoritmsMixin(ConfigTask):
         brace_expand=True,
         parse_empty=True,
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.btag_configs = dict(zip(self.algorithms, self.algorithm_insts))
 
     @classmethod
     def resolve_param_values(
@@ -63,8 +67,11 @@ class BTagAlgoritmsMixin(ConfigTask):
         params = super().resolve_param_values(params)
 
         config_inst = params.get("config_inst")
-        if config_inst:
-            params["algorithms"] = cls.resolve_config_default_and_groups(
+        if not config_inst:
+            return params
+
+        if "algorithm_insts" not in params and "algorithms" in params:
+            algorithms = cls.resolve_config_default_and_groups(
                 params,
                 params.get("algorithms"),
                 container=config_inst,
@@ -72,41 +79,44 @@ class BTagAlgoritmsMixin(ConfigTask):
                 groups_str="btagAlgorithm_groups",
             )
             btag_configs = []
-            for algorithm in params["algorithms"]:
-                if isinstance(algorithm, str):
-                    algorithm = tuple(algorithm.split("-"))
-                if isinstance(algorithm, tuple):
-                    if len(algorithm) == 2:
-                        algorithm = [*algorithm, None]
-                    elif len(algorithm) != 3:
-                        raise AssertionError(f"{algorithm} should be of form ALGO-WP(-DISCRIMINATOR)")
-                    btag_configs.append(BTagSFConfig(
-                        correction_set=algorithm[0],
-                        jec_sources=[],
-                        discriminator=algorithm[2],
-                        corrector_kwargs=dict(working_point=algorithm[1])
-                    ))
+            for algorithm in algorithms:
+                if isinstance(algorithm, (str, tuple)):
+                    algorithm = cls.strtup_to_cfg(algorithm)
                 else:
                     assert isinstance(algorithm, BTagSFConfig)
-                    btag_configs.append(algorithm)
-
-            params["algorithms"] = btag_configs
+                btag_configs.append(algorithm)
+            params["algorithms_insts"] = btag_configs
+            params["algorithms"] = [cls.cfg_to_str(b_cfg) for b_cfg in btag_configs]
         return params
 
     @classmethod
     def cfg_to_str(cls, b_cfg: BTagSFConfig):
         return f"{b_cfg.correction_set}_{b_cfg.corrector_kwargs['working_point']}_{b_cfg.discriminator}"
 
-    @property
-    def algorithms_str(self):
-        return [self.cfg_to_str(algo) for algo in self.algorithms]
+    @classmethod
+    def strtup_to_cfg(cls, b_strtup: str | tuple):
+        if isinstance(b_strtup, str):
+            b_strtup = tuple(b_strtup.split("-"))
+        if isinstance(b_strtup, tuple):
+            if len(b_strtup) == 2:
+                b_strtup = [*b_strtup, None]
+            elif len(b_strtup) != 3:
+                raise AssertionError(f"{b_strtup} should be of form ALGO-WP(-DISCRIMINATOR)")
+        else:
+            raise AssertionError(f"expected string or tuple but got {b_strtup}")
+
+        return BTagSFConfig(
+            correction_set=b_strtup[0],
+            jec_sources=[],
+            discriminator=b_strtup[2],
+            corrector_kwargs=dict(working_point=b_strtup[1])
+        )
 
     @property
     def algorithms_repr(self):
-        str_repr = self.algorithms_str
-        if len(str_repr) == 1:
-            return str_repr[0]
-        return f"{len(str_repr)}_{law.util.create_hash(sorted(str_repr))}"
+        if len(self.algorithms) == 1:
+            return self.algorithms[0]
+        return f"{len(self.algorithms)}_{law.util.create_hash(sorted(self.algorithms))}"
 
 
 class CreateBTagEfficiencyHistograms(
@@ -144,9 +154,9 @@ class CreateBTagEfficiencyHistograms(
         b_prod_class = WeightProducer.get_cls("fixed_wp_btag_weights")
         b_prod_inst_dct = self.get_producer_kwargs(self) | dict(add_weights=False)
         self.jet_btag_producers: list[WeightProducer] = [b_prod_class.derive(
-            cls_name=self.cfg_to_str(algo),
-            cls_dict=dict(add_weights=False, btag_config=algo, name=self.cfg_to_str)
-            )(inst_dict=b_prod_inst_dct) for algo in self.algorithms]
+            cls_name=b_cfg_name,
+            cls_dict=dict(add_weights=False, btag_config=self.btag_configs[b_cfg_name], name=self.cfg_to_str)
+            )(inst_dict=b_prod_inst_dct) for b_cfg_name in self.btag_configs]
 
     @law.util.classproperty
     def mandatory_columns(cls) -> set[str]:
@@ -356,7 +366,7 @@ class MergeBTagEfficiencyHistograms(
     def output(self):
         return {"hists": law.SiblingFileCollection({
             algo: self.target(f"hist__{algo}.pickle")
-            for algo in self.algorithms_str
+            for algo in self.algorithms
         } | {"incl": self.target(f"hist__incl.pickle")}
         )}
 
@@ -371,7 +381,7 @@ class MergeBTagEfficiencyHistograms(
             inp["hists"].load(formatter="pickle")
             for inp in self.iter_progress(inputs.targets.values(), len(inputs), reach=(0, 50))
         ]
-        merged = {}
+
         # create a separate file per output variable
         hist_names = list(hists[0].keys())
         for hist_name in self.iter_progress(hist_names, len(hist_names), reach=(50, 100)):
@@ -434,7 +444,7 @@ class BTagEfficiency(
 
     def create_branch_map(self):
         # create a dummy branch map so that this task could be submitted as a job
-        return [DotDict({"algorithm": algo}) for algo in sorted(self.algorithms, key=self.cfg_to_str)]
+        return [DotDict({"algorithm": self.btag_configs[algo]}) for algo in sorted(self.btag_configs)]
 
     def output(self):
         folder = f"{self.datasets_repr}/alg_{self.cfg_to_str(self.branch_data.algorithm)}"
