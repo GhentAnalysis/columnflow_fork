@@ -52,7 +52,7 @@ class CATColorsTen(DefaultColors):
         self.purple = "#832db6"
         self.brown = "#a96b59"
         self.ochre = "#b9ac70"
-        self.grey =  "#94a4a2"
+        self.grey = "#94a4a2"
         self.grey2 = "#717581"
         self.colors = [
             self.blue,
@@ -64,7 +64,7 @@ class CATColorsTen(DefaultColors):
             self.brown,
             self.ochre,
             self.grey,
-            self.grey2
+            self.grey2,
         ]
 
 
