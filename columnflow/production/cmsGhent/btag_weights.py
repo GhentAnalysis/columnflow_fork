@@ -358,7 +358,7 @@ def btag_efficiency_hists_setup(
         bundle.files.btag_sf_corr.load(formatter="gzip").decode("utf-8"),
     )
 
-    btag_wp_corrector = correction_set_btag_wp_corr[f"{self.btag_algorithm}_wp_values"]
+    btag_wp_corrector = correction_set_btag_wp_corr[f"{self.btag_config.correction_set}_wp_values"]
     self.variable_insts.append(od.Variable(
         name="btag_wp",
         expression=f"Jet.{self.btag_config.discriminator}",
