@@ -366,3 +366,10 @@ def btag_efficiency_hists_setup(
         x_labels=["U", "L", "M", "T"]
     ))
 
+
+@btag_efficiency_hists.requires
+def btag_efficiency_hists_requires(self: Producer, reqs: dict) -> None:
+
+    from columnflow.tasks.external import BundleExternalFiles
+    reqs["external_files"] = BundleExternalFiles.req(self.task)
+
