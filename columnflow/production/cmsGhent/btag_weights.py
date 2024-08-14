@@ -295,6 +295,7 @@ def btag_efficiency_hists(
     events: ak.Array,
     results: SelectionResult,
     hists: DotDict | dict = None,
+    **kwargs,
 ) -> ak.Array:
 
     if hists is None:
@@ -312,7 +313,7 @@ def btag_efficiency_hists(
             name=var_inst.name,
             label=var_inst.get_full_x_title(),
         )
-    hist["btag_efficiencies"] = histogram.Weight()
+    hists["btag_efficiencies"] = histogram.Weight()
 
     fill_kwargs = {
         # broadcast event weight and process-id to jet weight
@@ -335,7 +336,7 @@ def btag_efficiency_hists(
         fill_kwargs[var_inst.name] = ak.flatten(expr(selected_events))
 
     # fill inclusive histogram
-    hist["btag_efficiencies"].fill(**fill_kwargs)
+    hists["btag_efficiencies"].fill(**fill_kwargs)
 
     return events
 
