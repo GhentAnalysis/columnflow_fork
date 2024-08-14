@@ -11,13 +11,14 @@ from columnflow.tasks.framework.base import (
 )
 from columnflow.tasks.framework.mixins import (
     CalibratorsMixin, SelectorStepsMixin, VariablesMixin,
-    DatasetsProcessesMixin,
+    DatasetsProcessesMixin, SelectorMixin
 )
 from columnflow.tasks.framework.plotting import (
     PlotBase, PlotBase2D,
 )
 
 from columnflow.tasks.histograms import CreateHistograms
+from columnflow.tasks.selection import MergeSelectionStats
 
 from columnflow.weight import WeightProducer
 from columnflow.tasks.framework.remote import RemoteWorkflow
@@ -378,16 +379,13 @@ MergeBTagEfficiencyHistogramsWrapper = wrapper_factory(
     base_cls=AnalysisTask,
     require_cls=MergeBTagEfficiencyHistograms,
     enable=["configs", "skip_configs", "datasets", "skip_datasets", "shifts", "skip_shifts"],
-)
 
 
 class BTagEfficiency(
-    BTagAlgoritmsMixin,
     VariablesMixin,
     DatasetsProcessesMixin,
-    SelectorStepsMixin,
+    SelectorMixin,
     CalibratorsMixin,
-    law.LocalWorkflow,
     RemoteWorkflow,
     PlotBase2D,
 ):
@@ -402,33 +400,75 @@ class BTagEfficiency(
     # upstream requirements
     reqs = Requirements(
         RemoteWorkflow.reqs,
-        MergeBTagEfficiencyHistograms=MergeBTagEfficiencyHistograms,
+        MergeSelectionStats=MergeSelectionStats,
     )
+
+    @classmethod
+    def resolve_param_values(
+            cls,
+            params: law.util.InsertableDict[str, Any],
+    ) -> law.util.InsertableDict[str, Any]:
+        """
+        Resolve values *params* and check against possible default values
+
+        Check the values in *params* against the default value ``"default_btagAlgorithm"`` in the current config inst.
+        For more information, see
+        :py:meth:`~columnflow.tasks.framework.base.ConfigTask.resolve_config_default_and_groups`.
+
+        :param params: Parameter values to resolve
+        :return: Dictionary of parameters that contains the list requested
+            :py:class:`~columnflow.calibration.Calibrator` instances under the
+            keyword ``"calibrator_insts"``. See :py:meth:`~.CalibratorsMixin.get_calibrator_insts`
+            for more information.
+        """
+        redo_default_variables = False
+        if "variables" in params:
+            # when empty, use the config default
+            if not params["variables"]:
+                redo_default_variables = True
+
+        params = super().resolve_param_values(params)
+
+        config_inst = params.get("config_inst")
+        if not config_inst:
+            return params
+
+        if redo_default_variables:
+            # when empty, use the config default
+            if config_inst.x("default_btag_variables", ()):
+                params["variables"] = tuple(config_inst.x.default_btag_variables)
+            elif cls.default_variables:
+                params["variables"] = tuple(cls.default_variables)
+            else:
+                raise AssertionError(f"define default btag variables in {cls.__class__} or config {config_inst.name}")
 
     def workflow_requires(self):
         reqs = super().workflow_requires()
-        reqs["merged_hists"] = self.requires_from_branch()
+        for d in self.datasets:
+            reqs[d] = self.reqs.MergeSelectionStats.req(
+                self,
+                tree_index=0,
+                branch=-1,
+                dataset=d,
+                _exclude=MergeSelectionStats.exclude_params_forest_merge
+            )
         return reqs
 
     def requires(self):
         return {
-            d: self.reqs.MergeBTagEfficiencyHistograms.req(
+            d: self.reqs.MergeSelectionStats.req(
                 self,
-                dataset=d,
+                tree_index=0,
                 branch=-1,
-                _exclude={"branches"},
+                dataset=d,
+                _exclude=MergeSelectionStats.exclude_params_forest_merge
             )
             for d in self.datasets
         }
 
     def create_branch_map(self):
         # create a dummy branch map so that this task could be submitted as a job
-        return [DotDict({"algorithm": self.btag_configs[algo]}) for algo in sorted(self.btag_configs)]
-
-    def plot_parts(self) -> law.util.InsertableDict:
-        parts = super().plot_parts()
-        parts["algorithm"] = f"algo_{self.cfg_to_str(self.branch_data.algorithm)}"
-        return parts
+        return {0: None}
 
     def store_parts(self):
         parts = super().store_parts()
@@ -441,8 +481,13 @@ class BTagEfficiency(
                 self.get_plot_names("btagging_efficiency")[0].split(".")[:-1],
             ) + ".json"),
             "plots": [
-                [self.target(name) for name in self.get_plot_names(f"btagging_efficiency__{flav}_hadronflavour")]
+                [self.target(name)
+                 for name in self.get_plot_names(
+                    f"btag_eff__{flav}_hadronflavour"
+                    f"wp_{wp}"
+                )]
                 for flav in ["udsg", "c", "b"]
+                for wp in ["L", "M", "T"]
             ],
         }
 
@@ -461,9 +506,6 @@ class BTagEfficiency(
 
         variable_insts = list(map(self.config_inst.get_variable, self.variables))
         process_insts = list(map(self.config_inst.get_process, self.processes))
-        btagAlgorithm = self.branch_data.algorithm.correction_set
-        wp = self.branch_data.algorithm.corrector_kwargs["working_point"]
-        algo_str = self.cfg_to_str(self.branch_data.algorithm)
         # histogram for the tagged and all jets (combine all datasets)
         hists = {}
 
