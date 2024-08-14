@@ -1,6 +1,6 @@
 class DefaultColors:
     def __init__(self):
-        self.grey =  "#94a4a2"
+        self.grey = "#94a4a2"
         self.grey2 = "#717581"
         self.grey3 = "#5D5F66"
         self.grey4 = "#44464A"
@@ -17,9 +17,10 @@ class DefaultColors:
 
     def cat_ten(self):
         return CATColorsTen()
-    
+
     def __getitem__(self, i):
         return self.colors[i]
+
 
 class CATColorsSix(DefaultColors):
     def __init__(self):
@@ -51,6 +52,8 @@ class CATColorsTen(DefaultColors):
         self.purple = "#832db6"
         self.brown = "#a96b59"
         self.ochre = "#b9ac70"
+        self.grey =  "#94a4a2"
+        self.grey2 = "#717581"
         self.colors = [
             self.blue,
             self.blue_light,
@@ -60,6 +63,8 @@ class CATColorsTen(DefaultColors):
             self.purple,
             self.brown,
             self.ochre,
+            self.grey,
+            self.grey2
         ]
 
 
@@ -107,4 +112,3 @@ class PastelColors(DefaultColors):
             self.purple,
             self.blue,
         ]
-
