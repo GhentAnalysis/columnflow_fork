@@ -6,12 +6,12 @@ import law
 import order as od
 
 
-from columnflow.production import Producer
+from columnflow.production import Producer, producer
 from columnflow.weight import weight_producer
 from columnflow.selection import SelectionResult
 
 from columnflow.util import maybe_import, InsertableDict
-from columnflow.columnar_util import set_ak_column, layout_ak_array
+from columnflow.columnar_util import set_ak_column, layout_ak_array, Route, has_ak_column
 from columnflow.production.cms.btag import BTagSFConfig
 
 ak = maybe_import("awkward")
@@ -278,7 +278,7 @@ def fixed_wp_btag_weights_requires(self: Producer, reqs: dict) -> None:
 
 
 @producer(
-    uses=four_vec("mc_weight"),
+    uses="mc_weight",
     # only run on mc
     mc_only=True,
     # function to determine the correction file
