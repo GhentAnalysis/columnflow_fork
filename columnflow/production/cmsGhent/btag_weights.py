@@ -3,10 +3,12 @@ Producer that produces a column Jet.btag based on the default_btag Algorithm pro
 """
 
 import law
+import order as od
 
 
 from columnflow.production import Producer
 from columnflow.weight import weight_producer
+from columnflow.selection import SelectionResult
 
 from columnflow.util import maybe_import, InsertableDict
 from columnflow.columnar_util import set_ak_column, layout_ak_array
@@ -14,6 +16,8 @@ from columnflow.production.cms.btag import BTagSFConfig
 
 ak = maybe_import("awkward")
 np = maybe_import("numpy")
+hist = maybe_import("hist")
+
 
 logger = law.logger.get_logger(__name__)
 
@@ -271,3 +275,94 @@ def fixed_wp_btag_weights_requires(self: Producer, reqs: dict) -> None:
         processes=process,
         algorithms=[self.btag_config],
     )
+
+
+@producer(
+    uses=four_vec("mc_weight"),
+    # only run on mc
+    mc_only=True,
+    # function to determine the correction file
+    get_btag_file=(lambda self, external_files: external_files.btag_sf_corr),
+    # function to determine the btag sf config
+    get_btag_config=(lambda self: BTagSFConfig.new(self.config_inst.x.btag_sf)),
+    # function to determine the efficiency variables
+    get_btag_vars=(lambda self: self.config_inst.x.default_btag_variables),
+)
+def btag_efficiency_hists(
+    self: Producer,
+    events: ak.Array,
+    results: SelectionResult,
+    **kwargs,
+) -> ak.Array:
+
+    histogram = hist.Hist.new.IntCat([0, 4, 5], name="hadronFlavour")  # Jet hadronFlavour 0, 4, or 5
+    # add variables for binning the efficiency
+    for var_inst in self.variable_insts:
+        histogram = histogram.Var(
+            var_inst.bin_edges,
+            name=var_inst.name,
+            label=var_inst.get_full_x_title(),
+        )
+    histogram = histogram.Weight()
+
+    fill_kwargs = {
+        # broadcast event weight and process-id to jet weight
+        "hadronFlavour": ak.flatten(events.Jet.hadronFlavour),
+        "weight": ak.flatten(ak.broadcast_arrays(events.mc_weight, events.Jet.hadronFlavour)[0])
+    }
+
+    # loop over Jet variables in which the efficiency is binned
+    for var_inst in self.variable_insts:
+        expr = var_inst.expression
+        if isinstance(expr, str):
+            route = Route(expr)
+            def expr(events, *args, **kwargs):
+                if len(events) == 0 and not has_ak_column(events, route):
+                    return ak.Array(np.array([], dtype=np.float32))
+                return route.apply(events, null_value=var_inst.null_value)
+        # apply the variable (flatten to fill histogram)
+        fill_kwargs[var_inst.name] = ak.flatten(expr(events))
+
+    # fill inclusive histogram
+    histogram.fill(**fill_kwargs)
+
+    return histogram
+
+
+@btag_efficiency_hists.init
+def btag_efficiency_hists_init(self: Producer) -> None:
+    self.btag_config: BTagSFConfig = self.get_btag_config()
+    self.uses.add(f"Jet.{self.btag_config.discriminator}")
+
+    self.variable_insts = list(map(self.config_inst.get_variable, self.get_btag_vars()))
+    self.uses.update({
+        inp
+        for variable_inst in self.variable_insts
+        for inp in (
+            [variable_inst.expression] if isinstance(variable_inst.expression, str) else variable_inst.x("inputs", [])
+        )
+    })
+
+
+@btag_efficiency_hists.setup
+def btag_efficiency_hists_setup(
+    self: Producer,
+    reqs: dict,
+    inputs: dict,
+    reader_targets: InsertableDict,
+) -> None:
+    import correctionlib
+
+    bundle = reqs["external_files"]
+    correction_set_btag_wp_corr = correctionlib.CorrectionSet.from_string(
+        bundle.files.btag_sf_corr.load(formatter="gzip").decode("utf-8"),
+    )
+
+    btag_wp_corrector = correction_set_btag_wp_corr[f"{self.btag_algorithm}_wp_values"]
+    self.variable_insts.append(od.Variable(
+        name="btag_wp",
+        expression=f"Jet.{self.btag_config.discriminator}",
+        binning=[0, *(btag_wp_corrector.evaluate(wp) for wp in "LMT"), 1],
+        x_labels=["U", "L", "M", "T"]
+    ))
+
