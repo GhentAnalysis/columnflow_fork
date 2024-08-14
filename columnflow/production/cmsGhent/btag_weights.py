@@ -5,10 +5,10 @@ Producer that produces a column Jet.btag based on the default_btag Algorithm pro
 import law
 
 
-from columnflow.production import Producer, producer
-from columnflow.weight import WeightProducer, weight_producer
+from columnflow.production import Producer
+from columnflow.weight import weight_producer
 
-from columnflow.util import maybe_import, four_vec, InsertableDict
+from columnflow.util import maybe_import, InsertableDict
 from columnflow.columnar_util import set_ak_column, layout_ak_array
 from columnflow.production.cms.btag import BTagSFConfig
 
@@ -21,7 +21,7 @@ logger = law.logger.get_logger(__name__)
 @weight_producer(
     btag_config=None,
     add_weights=True,
-    name=lambda btag_config: f"{btag_config.discriminator}_{btag_config.corrector_kwargs['working_point']}"
+    name=lambda btag_config: f"{btag_config.discriminator}_{btag_config.corrector_kwargs['working_point']}",
 )
 def fixed_wp_btag_weights(
     self: Producer,
@@ -128,8 +128,8 @@ def fixed_wp_btag_weights_init(
             BTagSFConfig(
                 correction_set="DeepJet",
                 jec_sources=[],
-                corrector_kwargs=dict(working_point="M")
-            )
+                corrector_kwargs=dict(working_point="M"),
+            ),
         )
 
     assert "working_point" in self.btag_config.corrector_kwargs, "no working point specified"
@@ -161,7 +161,7 @@ def fixed_wp_btag_weights_init(
 
         # to handle this efficiently in one spot, store jec information
         self.jec_source = shift_inst.x.jec_source if shift_inst.has_tag("jec") else None
-        btag_sf_jec_source = "" if self.jec_source == "Total" else self.jec_source
+        "" if self.jec_source == "Total" else self.jec_source
 
         # save names of method-intrinsic uncertainties
         self.btag_uncs = {

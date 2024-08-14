@@ -7,11 +7,11 @@ from collections import OrderedDict
 
 from columnflow.tasks.framework.base import (
     Requirements, AnalysisTask, DatasetTask,
-    wrapper_factory, RESOLVE_DEFAULT, ConfigTask
+    wrapper_factory, RESOLVE_DEFAULT, ConfigTask,
 )
 from columnflow.tasks.framework.mixins import (
     CalibratorsMixin, SelectorStepsMixin, VariablesMixin,
-    ChunkedIOMixin, DatasetsProcessesMixin, WeightProducerMixin,
+    DatasetsProcessesMixin,
 )
 from columnflow.tasks.framework.plotting import (
     PlotBase, PlotBase2D,
@@ -20,10 +20,7 @@ from columnflow.tasks.framework.plotting import (
 from columnflow.tasks.histograms import CreateHistograms
 
 from columnflow.weight import WeightProducer
-from columnflow.production import Producer
 from columnflow.tasks.framework.remote import RemoteWorkflow
-from columnflow.tasks.selection import MergeSelectionStats
-from columnflow.tasks.reduction import ReducedEventsUser
 from columnflow.util import dev_sandbox, dict_add_strict, four_vec, DotDict
 from columnflow.types import Any
 from columnflow.production.cms.btag import BTagSFConfig
@@ -128,7 +125,7 @@ class BTagAlgoritmsMixin(ConfigTask):
             correction_set=b_strtup[0],
             jec_sources=[],
             discriminator=b_strtup[2],
-            corrector_kwargs=dict(working_point=b_strtup[1])
+            corrector_kwargs=dict(working_point=b_strtup[1]),
         )
 
     @property
@@ -140,7 +137,7 @@ class BTagAlgoritmsMixin(ConfigTask):
 
 class CreateBTagEfficiencyHistograms(
     BTagAlgoritmsMixin,
-    CreateHistograms
+    CreateHistograms,
 ):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -149,8 +146,8 @@ class CreateBTagEfficiencyHistograms(
         b_prod_inst_dct = self.get_producer_kwargs(self) | dict(add_weights=False)
         self.jet_btag_producers: list[WeightProducer] = [b_prod_class.derive(
             cls_name=b_cfg_name,
-            cls_dict=dict(add_weights=False, btag_config=self.btag_configs[b_cfg_name], name=self.cfg_to_str)
-            )(inst_dict=b_prod_inst_dct) for b_cfg_name in self.btag_configs]
+            cls_dict=dict(add_weights=False, btag_config=self.btag_configs[b_cfg_name], name=self.cfg_to_str),
+        )(inst_dict=b_prod_inst_dct) for b_cfg_name in self.btag_configs]
 
     def workflow_requires(self):
         reqs = super().workflow_requires()
@@ -166,7 +163,7 @@ class CreateBTagEfficiencyHistograms(
     def output(self):
         return {
             "hists": self.target(
-                f"histograms__algo_{self.algorithms_repr}__var_{self.variables_repr}__{self.branch}.pickle"
+                f"histograms__algo_{self.algorithms_repr}__var_{self.variables_repr}__{self.branch}.pickle",
             ),
         }
 
@@ -349,7 +346,7 @@ class MergeBTagEfficiencyHistograms(
         return {"hists": law.SiblingFileCollection({
             algo: self.target(f"hist__{algo}.pickle")
             for algo in self.algorithms
-        } | {"incl": self.target(f"hist__incl.pickle")}
+        } | {"incl": self.target("hist__incl.pickle")},
         )}
 
     @law.decorator.log
@@ -441,7 +438,7 @@ class BTagEfficiency(
     def output(self):
         return {
             "stats": self.target(".".join(
-                self.get_plot_names("btagging_efficiency")[0].split(".")[:-1]
+                self.get_plot_names("btagging_efficiency")[0].split(".")[:-1],
             ) + ".json"),
             "plots": [
                 [self.target(name) for name in self.get_plot_names(f"btagging_efficiency__{flav}_hadronflavour")]
@@ -491,7 +488,7 @@ class BTagEfficiency(
             )
 
         # combine tagged and inclusive histograms to an efficiency histogram
-        efficiency_hist = data=hists[algo_str].copy() / hists["incl"].values()
+        efficiency_hist = hists[algo_str].copy() / hists["incl"].values()
 
         # save as correctionlib file
         efficiency_hist.name = f"{btagAlgorithm}"
