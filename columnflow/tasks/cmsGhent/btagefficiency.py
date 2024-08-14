@@ -379,6 +379,7 @@ MergeBTagEfficiencyHistogramsWrapper = wrapper_factory(
     base_cls=AnalysisTask,
     require_cls=MergeBTagEfficiencyHistograms,
     enable=["configs", "skip_configs", "datasets", "skip_datasets", "shifts", "skip_shifts"],
+)
 
 
 class BTagEfficiency(
