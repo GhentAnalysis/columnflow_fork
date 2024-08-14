@@ -12,7 +12,7 @@ from columnflow.tasks.framework.base import (
 )
 from columnflow.tasks.framework.mixins import (
     CalibratorsMixin, SelectorStepsMixin, VariablesMixin,
-    DatasetsProcessesMixin, SelectorMixin
+    DatasetsProcessesMixin, SelectorMixin,
 )
 from columnflow.tasks.framework.plotting import (
     PlotBase, PlotBase2D,
@@ -23,7 +23,7 @@ from columnflow.tasks.selection import MergeSelectionStats
 
 from columnflow.weight import WeightProducer
 from columnflow.tasks.framework.remote import RemoteWorkflow
-from columnflow.util import dev_sandbox, dict_add_strict, four_vec, DotDict
+from columnflow.util import dev_sandbox, dict_add_strict, four_vec
 from columnflow.types import Any
 from columnflow.production.cms.btag import BTagSFConfig
 
@@ -455,7 +455,7 @@ class BTagEfficiency(
                 tree_index=0,
                 branch=-1,
                 dataset=d,
-                _exclude=MergeSelectionStats.exclude_params_forest_merge
+                _exclude=MergeSelectionStats.exclude_params_forest_merge,
             )
         return reqs
 
@@ -466,7 +466,7 @@ class BTagEfficiency(
                 tree_index=0,
                 branch=-1,
                 dataset=d,
-                _exclude=MergeSelectionStats.exclude_params_forest_merge
+                _exclude=MergeSelectionStats.exclude_params_forest_merge,
             )
             for d in self.datasets
         }
@@ -489,7 +489,7 @@ class BTagEfficiency(
                 [self.target(name)
                  for name in self.get_plot_names(
                     f"btag_eff__{flav}_hadronflavour"
-                    f"__wp_{wp}"
+                    f"__wp_{wp}",
                 )]
                 for flav in ["udsg", "c", "b"]
                 for wp in ["L", "M", "T"]
@@ -518,7 +518,10 @@ class BTagEfficiency(
         for dataset, inp in self.input().items():
             dataset_inst = self.config_inst.get_dataset(dataset)
             dt_process_insts = {process_inst for process_inst, _, _ in dataset_inst.walk_processes()}
-            xsec = sum(process_inst.get_xsec(self.config_inst.campaign.ecm).nominal for process_inst in dt_process_insts)
+            xsec = sum(
+                process_inst.get_xsec(self.config_inst.campaign.ecm).nominal
+                for process_inst in dt_process_insts
+            )
             h_in = inp["collection"][0]["hists"].load(formatter="pickle")["btag_efficiencies"]
             histogram = histogram + h_in * xsec / inp["collection"][0]["stats"].load()["sum_mc_weight"]
             process_insts.extend(dt_process_insts)
@@ -558,8 +561,8 @@ class BTagEfficiency(
                 (process_insts[-1],
                  efficiency_hist[{
                      "hadronFlavour": hist.loc(hadronFlavour),
-                     "btag_wp": wp
-                 }]),)
+                     "btag_wp": wp,
+                 }]),),
             )
 
             # create a dummy category for plotting
