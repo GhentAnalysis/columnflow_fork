@@ -489,7 +489,7 @@ class BTagEfficiency(
                 [self.target(name)
                  for name in self.get_plot_names(
                     f"btag_eff__{flav}_hadronflavour"
-                    f"wp_{wp}"
+                    f"__wp_{wp}"
                 )]
                 for flav in ["udsg", "c", "b"]
                 for wp in ["L", "M", "T"]
@@ -511,16 +511,17 @@ class BTagEfficiency(
         from columnflow.plotting.cmsGhent.plot_util import cumulate
 
         variable_insts = list(map(self.config_inst.get_variable, self.variables))
-        process_insts = list(map(self.config_inst.get_process, self.processes))
+        process_insts = []
 
         # histogram for the tagged and all jets (combine all datasets)
         histogram = 0
         for dataset, inp in self.input().items():
             dataset_inst = self.config_inst.get_dataset(dataset)
-            process_insts = {process_inst for process_inst, _, _ in dataset_inst.walk_processes()}
-            xsec = sum(process_inst.get_xsec(self.config_inst.campaign.ecm).nominal for process_inst in process_insts)
+            dt_process_insts = {process_inst for process_inst, _, _ in dataset_inst.walk_processes()}
+            xsec = sum(process_inst.get_xsec(self.config_inst.campaign.ecm).nominal for process_inst in dt_process_insts)
             h_in = inp["collection"][0]["hists"].load(formatter="pickle")["btag_efficiencies"]
             histogram = histogram + h_in * xsec / inp["collection"][0]["stats"].load()["sum_mc_weight"]
+            process_insts.extend(dt_process_insts)
 
         if not histogram:
             raise Exception(

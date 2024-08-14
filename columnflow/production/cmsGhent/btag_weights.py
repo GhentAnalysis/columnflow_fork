@@ -313,7 +313,6 @@ def btag_efficiency_hists(
             name=var_inst.name,
             label=var_inst.get_full_x_title(),
         )
-    histogram.name = f"{self.btag_config.correction_set}({self.btag_config.discriminator})"
     hists["btag_efficiencies"] = histogram.Weight()
 
     fill_kwargs = {
@@ -338,6 +337,7 @@ def btag_efficiency_hists(
 
     # fill inclusive histogram
     hists["btag_efficiencies"].fill(**fill_kwargs)
+    hists["btag_efficiencies"].name = f"{self.btag_config.correction_set}({self.btag_config.discriminator})"
 
     return events
 
