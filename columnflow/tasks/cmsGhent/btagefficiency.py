@@ -4,6 +4,7 @@ import luigi
 import law
 import order as od
 from collections import OrderedDict
+from itertools import product
 
 from columnflow.tasks.framework.base import (
     Requirements, AnalysisTask, DatasetTask,
@@ -507,26 +508,21 @@ class BTagEfficiency(
         import numpy as np
         import correctionlib
         import correctionlib.convert
+        from columnflow.plotting.cmsGhent.plot_util import cumulate
 
         variable_insts = list(map(self.config_inst.get_variable, self.variables))
         process_insts = list(map(self.config_inst.get_process, self.processes))
+
         # histogram for the tagged and all jets (combine all datasets)
-        hists = {}
-
+        histogram = 0
         for dataset, inp in self.input().items():
-            self.config_inst.get_dataset(dataset)
-            h_in = inp["collection"][0]["hists"]
+            dataset_inst = self.config_inst.get_dataset(dataset)
+            process_insts = {process_inst for process_inst, _, _ in dataset_inst.walk_processes()}
+            xsec = sum(process_inst.get_xsec(self.config_inst.campaign.ecm).nominal for process_inst in process_insts)
+            h_in = inp["collection"][0]["hists"].load(formatter="pickle")["btag_efficiencies"]
+            histogram = histogram + h_in * xsec / inp["collection"][0]["stats"].load()["sum_mc_weight"]
 
-            # copy tagged and inclusive jet histograms
-            for key in ["incl", algo_str]:
-                h = h_in[key].load(formatter="pickle").copy()
-
-                if key in hists:
-                    hists[key] += h
-                else:
-                    hists[key] = h
-
-        if not hists:
+        if not histogram:
             raise Exception(
                 "no histograms found to plot; possible reasons:\n" +
                 "  - requested variable requires columns that were missing during histogramming\n" +
@@ -534,28 +530,36 @@ class BTagEfficiency(
             )
 
         # combine tagged and inclusive histograms to an efficiency histogram
-        efficiency_hist = hists[algo_str].copy() / hists["incl"].values()
+        cum_histogram = cumulate(histogram, direction="above", axis="btag_wp")
+        incl = cum_histogram[{"btag_wp": slice(0, 1)}].values()
+
+        axes = OrderedDict(zip(cum_histogram.axes.name, cum_histogram.axes))
+        axes["btag_wp"] = hist.axis.StrCategory(["L", "M", "T"], name="btag_wp", label="working point")
+
+        efficiency_hist = hist.Hist(*axes.values(), name=histogram.name, storage=hist.storage.Weight())
+        efficiency_hist.view()[:] = cum_histogram[{"btag_wp": slice(1, None)}].view()
+        efficiency_hist = efficiency_hist / incl
 
         # save as correctionlib file
-        efficiency_hist.name = f"{btagAlgorithm}"
         efficiency_hist.label = "out"
+        description = f"b-tagging efficiencies of jets for {efficiency_hist.name} algorithm"
         clibcorr = correctionlib.convert.from_histogram(efficiency_hist)
-        clibcorr.description = f"b-tagging efficiency of jets for {btagAlgorithm} algorithm with working point {wp}"
+        clibcorr.description = description
 
-        cset = correctionlib.schemav2.CorrectionSet(
-            schema_version=2,
-            description=f"b-tagging efficiency of jets for {btagAlgorithm} algorithm with working point {wp}",
-            corrections=[clibcorr],
-
-        )
+        cset = correctionlib.schemav2.CorrectionSet(schema_version=2, description=description, corrections=[clibcorr])
         self.output()["stats"].dump(cset.dict(exclude_unset=True), indent=4, formatter="json")
-
-        # plot efficiency for each hadronFlavour
-        for i, hadronFlavour in enumerate((0, 4, 5)):
+        # plot efficiency for each hadronFlavour and wp
+        for i, (hadronFlavour, wp) in enumerate(product([0, 4, 5], "LMT")):
 
             # create a dummy histogram dict for plotting with the first process
             # TODO change process name to the relevant process group
-            hist_dict = OrderedDict(((process_insts[-1], efficiency_hist[{"hadronFlavour": hist.loc(hadronFlavour)}]),))
+            hist_dict = OrderedDict((
+                (process_insts[-1],
+                 efficiency_hist[{
+                     "hadronFlavour": hist.loc(hadronFlavour),
+                     "btag_wp": wp
+                 }]),)
+            )
 
             # create a dummy category for plotting
             cat = od.Category(
