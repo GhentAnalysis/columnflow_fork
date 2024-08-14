@@ -308,7 +308,7 @@ def btag_efficiency_hists(
     fill_kwargs = {
         # broadcast event weight and process-id to jet weight
         "hadronFlavour": ak.flatten(events.Jet.hadronFlavour),
-        "weight": ak.flatten(ak.broadcast_arrays(events.mc_weight, events.Jet.hadronFlavour)[0])
+        "weight": ak.flatten(ak.broadcast_arrays(events.mc_weight, events.Jet.hadronFlavour)[0]),
     }
 
     # loop over Jet variables in which the efficiency is binned
@@ -316,10 +316,12 @@ def btag_efficiency_hists(
         expr = var_inst.expression
         if isinstance(expr, str):
             route = Route(expr)
+
             def expr(events, *args, **kwargs):
                 if len(events) == 0 and not has_ak_column(events, route):
                     return ak.Array(np.array([], dtype=np.float32))
                 return route.apply(events, null_value=var_inst.null_value)
+
         # apply the variable (flatten to fill histogram)
         fill_kwargs[var_inst.name] = ak.flatten(expr(events))
 
@@ -363,7 +365,7 @@ def btag_efficiency_hists_setup(
         name="btag_wp",
         expression=f"Jet.{self.btag_config.discriminator}",
         binning=[0, *(btag_wp_corrector.evaluate(wp) for wp in "LMT"), 1],
-        x_labels=["U", "L", "M", "T"]
+        x_labels=["U", "L", "M", "T"],
     ))
 
 
@@ -372,4 +374,3 @@ def btag_efficiency_hists_requires(self: Producer, reqs: dict) -> None:
 
     from columnflow.tasks.external import BundleExternalFiles
     reqs["external_files"] = BundleExternalFiles.req(self.task)
-
