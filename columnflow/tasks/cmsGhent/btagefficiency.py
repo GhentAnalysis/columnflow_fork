@@ -444,6 +444,8 @@ class BTagEfficiency(
             else:
                 raise AssertionError(f"define default btag variables in {cls.__class__} or config {config_inst.name}")
 
+        return params
+
     def workflow_requires(self):
         reqs = super().workflow_requires()
         for d in self.datasets:
