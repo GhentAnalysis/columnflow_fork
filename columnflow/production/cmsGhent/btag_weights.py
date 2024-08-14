@@ -22,6 +22,7 @@ logger = law.logger.get_logger(__name__)
     btag_config=None,
     add_weights=True,
     name=lambda btag_config: f"{btag_config.discriminator}_{btag_config.corrector_kwargs['working_point']}",
+    efficiency_variables=None,
 )
 def fixed_wp_btag_weights(
     self: Producer,
@@ -147,7 +148,6 @@ def fixed_wp_btag_weights_init(
 
     if self.add_weights:
         self.uses.add("Jet.{pt,eta,hadronFlavour}")
-
         # depending on the requested shift_inst, there are three cases to handle:
         #   1. when a JEC uncertainty is requested whose propagation to btag weights is known, the
         #      producer should only produce that specific weight column
@@ -158,6 +158,18 @@ def fixed_wp_btag_weights_init(
         shift_inst = getattr(self, "local_shift_inst", None)
         if not shift_inst:
             return
+
+        if self.variables is None:
+            if hasattr(self.config_inst.x, "default_btag_variables"):
+                self.variables = self.config_inst.x.default_btag_variables
+            else:
+                logger.warning_once(
+                    "no default btagging efficiency variables defined in config",
+                    "Config does not have an attribute x.default_btag_variables that provides default \
+                        variables in which to bin b - tagging efficiency.\n \
+                        The variables 'btag_jet_pt' & 'btag_jet_eta' are used if defined in the config.",
+                )
+                self.variables = ("btag_jet_pt", "btag_jet_eta")
 
         # to handle this efficiently in one spot, store jec information
         self.jec_source = shift_inst.x.jec_source if shift_inst.has_tag("jec") else None
@@ -235,17 +247,6 @@ def fixed_wp_btag_weights_requires(self: Producer, reqs: dict) -> None:
     datasets = [self.dataset_inst.name]
     process = self.dataset_inst.processes.names()[0]
 
-    if hasattr(self.config_inst.x, "default_btag_variables"):
-        variables = self.config_inst.x.default_btag_variables
-    else:
-        logger.warning_once(
-            "no default btagging efficiency variables defined in config",
-            "Config does not have an attribute x.default_btagAlgorithm that provides default \
-                variables in which to bin b - tagging efficiency.\n \
-                The variables 'btag_jet_pt' & 'btag_jet_eta' are used if defined in the config.",
-        )
-        variables = ("btag_jet_pt", "btag_jet_eta")
-
     if hasattr(self.config_inst.x, "btag_dataset_groups"):
         for btag_group in self.config_inst.x.btag_dataset_groups:
             # check if dataset is in data group
@@ -266,7 +267,7 @@ def fixed_wp_btag_weights_requires(self: Producer, reqs: dict) -> None:
     reqs["btag_efficiency"] = BTagEfficiency.req(
         self.task,
         datasets=datasets,
-        variables=variables,
+        variables=self.variables,
         processes=process,
         algorithms=[self.btag_config],
     )
