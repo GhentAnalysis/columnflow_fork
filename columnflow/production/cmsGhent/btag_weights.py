@@ -2,6 +2,8 @@
 Producer that produces a column Jet.btag based on the default_btag Algorithm provided in the config
 """
 
+from __future__ import annotations
+
 import law
 import order as od
 
@@ -10,7 +12,7 @@ from columnflow.production import Producer, producer
 from columnflow.weight import weight_producer
 from columnflow.selection import SelectionResult
 
-from columnflow.util import maybe_import, InsertableDict
+from columnflow.util import maybe_import, InsertableDict, DotDict
 from columnflow.columnar_util import set_ak_column, layout_ak_array, Route, has_ak_column
 from columnflow.production.cms.btag import BTagSFConfig
 
@@ -278,7 +280,7 @@ def fixed_wp_btag_weights_requires(self: Producer, reqs: dict) -> None:
 
 
 @producer(
-    uses="mc_weight",
+    uses={"mc_weight", "Jet.{hadronFlavour,pt,eta}"},
     # only run on mc
     mc_only=True,
     # function to determine the correction file
@@ -292,8 +294,15 @@ def btag_efficiency_hists(
     self: Producer,
     events: ak.Array,
     results: SelectionResult,
-    **kwargs,
+    hists: DotDict | dict = None,
 ) -> ak.Array:
+
+    if hists is None:
+        return events
+
+    assert "event_no_btag" in results.aux, "results.aux does not contain mask 'event_no_btag'"
+
+    selected_events = events[results.x.event_no_btag]
 
     histogram = hist.Hist.new.IntCat([0, 4, 5], name="hadronFlavour")  # Jet hadronFlavour 0, 4, or 5
     # add variables for binning the efficiency
@@ -303,12 +312,12 @@ def btag_efficiency_hists(
             name=var_inst.name,
             label=var_inst.get_full_x_title(),
         )
-    histogram = histogram.Weight()
+    hist["btag_efficiencies"] = histogram.Weight()
 
     fill_kwargs = {
         # broadcast event weight and process-id to jet weight
-        "hadronFlavour": ak.flatten(events.Jet.hadronFlavour),
-        "weight": ak.flatten(ak.broadcast_arrays(events.mc_weight, events.Jet.hadronFlavour)[0]),
+        "hadronFlavour": ak.flatten(selected_events.Jet.hadronFlavour),
+        "weight": ak.flatten(ak.broadcast_arrays(selected_events.mc_weight, selected_events.Jet.hadronFlavour)[0]),
     }
 
     # loop over Jet variables in which the efficiency is binned
@@ -317,18 +326,18 @@ def btag_efficiency_hists(
         if isinstance(expr, str):
             route = Route(expr)
 
-            def expr(events, *args, **kwargs):
-                if len(events) == 0 and not has_ak_column(events, route):
+            def expr(selected_events, *args, **kwargs):
+                if len(selected_events) == 0 and not has_ak_column(selected_events, route):
                     return ak.Array(np.array([], dtype=np.float32))
-                return route.apply(events, null_value=var_inst.null_value)
+                return route.apply(selected_events, null_value=var_inst.null_value)
 
         # apply the variable (flatten to fill histogram)
-        fill_kwargs[var_inst.name] = ak.flatten(expr(events))
+        fill_kwargs[var_inst.name] = ak.flatten(expr(selected_events))
 
     # fill inclusive histogram
-    histogram.fill(**fill_kwargs)
+    hist["btag_efficiencies"].fill(**fill_kwargs)
 
-    return histogram
+    return events
 
 
 @btag_efficiency_hists.init
