@@ -83,7 +83,7 @@ class BTagAlgoritmsMixin(ConfigTask):
         if redo_default_variables:
             # when empty, use the config default
             if config_inst.x("default_btag_variables", ()):
-                params["variables"] = tuple(config_inst.x.default_variables)
+                params["variables"] = tuple(config_inst.x.default_btag_variables)
             elif cls.default_variables:
                 params["variables"] = tuple(cls.default_variables)
             else:
@@ -428,14 +428,24 @@ class BTagEfficiency(
         # create a dummy branch map so that this task could be submitted as a job
         return [DotDict({"algorithm": self.btag_configs[algo]}) for algo in sorted(self.btag_configs)]
 
+    def plot_parts(self) -> law.util.InsertableDict:
+        parts = super().plot_parts()
+        parts["algorithm"] = f"algo_{self.cfg_to_str(self.branch_data.algorithm)}"
+        return parts
+
+    def store_parts(self):
+        parts = super().store_parts()
+        parts.insert_before("version", "datasets", f"datasets_{self.datasets_repr}")
+        return parts
+
     def output(self):
-        folder = f"{self.datasets_repr}/alg_{self.cfg_to_str(self.branch_data.algorithm)}"
         return {
-            "stats": self.target(f"{folder}__btagging_efficiency.json"),
+            "stats": self.target(".".join(
+                self.get_plot_names("btagging_efficiency")[0].split(".")[:-1]
+            ) + ".json"),
             "plots": [
-                self.target(f"{folder}__btagging_efficiency__udsg_hadronflavour.pdf"),
-                self.target(f"{folder}__btagging_efficiency__c_hadronflavour.pdf"),
-                self.target(f"{folder}__btagging_efficiency__b_hadronflavour.pdf"),
+                [self.target(name) for name in self.get_plot_names(f"btagging_efficiency__{flav}_hadronflavour")]
+                for flav in ["udsg", "c", "b"]
             ],
         }
 
@@ -456,16 +466,17 @@ class BTagEfficiency(
         process_insts = list(map(self.config_inst.get_process, self.processes))
         btagAlgorithm = self.branch_data.algorithm.correction_set
         wp = self.branch_data.algorithm.corrector_kwargs["working_point"]
+        algo_str = self.cfg_to_str(self.branch_data.algorithm)
         # histogram for the tagged and all jets (combine all datasets)
         hists = {}
 
         for dataset, inp in self.input().items():
             self.config_inst.get_dataset(dataset)
-            h_in = inp["collection"][0]["hists"].load(formatter="pickle")
+            h_in = inp["collection"][0]["hists"]
 
             # copy tagged and inclusive jet histograms
-            for key in h_in.keys():
-                h = h_in[key].copy()
+            for key in ["incl", algo_str]:
+                h = h_in[key].load(formatter="pickle").copy()
 
                 if key in hists:
                     hists[key] += h
@@ -480,11 +491,7 @@ class BTagEfficiency(
             )
 
         # combine tagged and inclusive histograms to an efficiency histogram
-        algo_str = self.cfg_to_str(self.branch_data.algorithm)
-        efficiency_hist = hist.Hist(
-            *hists[algo_str].axes[:],
-            data=hists[algo_str].values() / hists["incl"].values()
-        )
+        efficiency_hist = data=hists[algo_str].copy() / hists["incl"].values()
 
         # save as correctionlib file
         efficiency_hist.name = f"{btagAlgorithm}"
@@ -527,5 +534,5 @@ class BTagEfficiency(
                 style_config=style_config,
                 **self.get_plot_parameters(),
             )
-
-            self.output()["plots"][i].dump(fig, formatter="mpl")
+            for p in self.output()["plots"][i]:
+                p.dump(fig, formatter="mpl")
