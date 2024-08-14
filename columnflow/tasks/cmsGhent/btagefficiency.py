@@ -387,6 +387,7 @@ class BTagEfficiency(
     DatasetsProcessesMixin,
     SelectorMixin,
     CalibratorsMixin,
+    law.LocalWorkflow,
     RemoteWorkflow,
     PlotBase2D,
 ):
