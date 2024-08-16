@@ -21,7 +21,7 @@ from columnflow.production.cms.btag import BTagSFConfig
 ak = maybe_import("awkward")
 np = maybe_import("numpy")
 hist = maybe_import("hist")
-
+correctionlib = maybe_import("correctionlib")
 
 logger = law.logger.get_logger(__name__)
 
@@ -35,10 +35,10 @@ def init_btag(self: Producer | WeightProducer, add_eff_vars=True):
                 jec_sources=[],
             ),
         )
+        self.btag_config = BTagSFConfig.new(self.btag_config)
 
     # setup requires the algorithm name
     self.btag_algorithm = self.btag_config.correction_set
-    self.btag_wp = self.btag_config.corrector_kwargs["working_point"]
     # self requires for btag column calculation
     self.btag_descriminator = self.btag_config.discriminator
     self.uses.add(f"Jet.{self.btag_config.discriminator }")
@@ -64,8 +64,6 @@ def init_btag(self: Producer | WeightProducer, add_eff_vars=True):
 
 
 def setup_btag(self: Producer | WeightProducer, reqs: dict):
-    import correctionlib
-
     bundle = reqs["external_files"]
     correction_set_btag_wp_corr = correctionlib.CorrectionSet.from_string(
         bundle.files.btag_sf_corr.load(formatter="gzip").decode("utf-8"),
@@ -89,15 +87,15 @@ def jet_btag(
     self: Producer,
     events: ak.Array,
     working_points: Iterable[str],
+    jet_mask: ak.Array[bool] = None,
     **kwargs,
 ) -> ak.Array:
 
     for wp in working_points:
-        events = set_ak_column(
-            events,
-            f"Jet.btag_{wp}",
-            events.Jet[self.btag_descriminator] >= self.btag_wp_value[wp]
-        )
+        tag = events.Jet[self.btag_descriminator] >= self.btag_wp_value[wp]
+        if jet_mask is not None:
+            tag = tag & jet_mask
+        events = set_ak_column(events, f"Jet.btag_{wp}", tag)
 
     return events
 
@@ -108,7 +106,7 @@ def jet_btag_init(self: Producer):
 
 
 @jet_btag.setup
-def jet_btag_setup(self: Producer, reqs: dict) -> None:
+def jet_btag_setup(self: Producer, reqs: dict, *args, **kwargs) -> None:
     setup_btag(self, reqs)
 
 
@@ -126,17 +124,20 @@ def fixed_wp_btag_weights(
     self: Producer,
     events: ak.Array,
     working_points: Iterable[str],
+    jet_mask: ak.Array[bool] = None,
     **kwargs,
 ) -> ak.Array:
     # get the total number of jets in the chunk
-    n_jets_all = ak.sum(ak.num(events.Jet, axis=1))
+    jets = events.Jet[jet_mask] if jet_mask is not None else events.Jet
+
+    n_jets_all = ak.sum(ak.num(jets, axis=1))
     np.ones(n_jets_all, dtype=np.float32)
 
     # get flat inputs
-    flavor = ak.flatten(events.Jet.hadronFlavour, axis=1)
-    abs_eta = ak.flatten(abs(events.Jet.eta), axis=1)
-    pt = ak.flatten(events.Jet.pt, axis=1)
-    btags = {wp: ak.flatten(events.Jet[f"btag_{wp}"], axis=1) for wp in working_points}
+    flavor = ak.flatten(jets.hadronFlavour, axis=1)
+    abs_eta = ak.flatten(abs(jets.eta), axis=1)
+    pt = ak.flatten(jets.pt, axis=1)
+    btags = {wp: ak.flatten(jets[f"btag_{wp}"], axis=1) for wp in working_points}
 
     # helper to create and store the weight
     def add_weight(syst_name, syst_direction, working_point):
@@ -181,7 +182,7 @@ def fixed_wp_btag_weights(
         weight_flat_all[flavor_mask] = weight_flat
 
         # enforce the correct shape and create the product over all jets per event
-        sf = layout_ak_array(weight_flat_all, events.Jet.pt)
+        sf = layout_ak_array(weight_flat_all, jets.pt)
 
         weight = ak.prod(sf, axis=1, mask_identity=False)
 
@@ -240,18 +241,14 @@ def fixed_wp_btag_weights_init(
     }
 
     # add uncertainty sources of the method itself
-    if shift_inst.is_nominal:
-        for name in self.btag_uncs:
-            # nominal columns
-            self.produces.add(f"btag_weight_{name}")
-            # directions
-            for direction in ["up", "down"]:
-                self.produces.add(f"btag_weight_{name}_{direction}")
-    else:
-        # only the nominal columns
-        for name in self.btag_uncs:
-            self.produces.add(f"btag_weight_{name}")
-
+    produces = set()
+    for name in self.btag_uncs:
+        # nominal columns
+        produces.add(f"weight_{name}")
+        if shift_inst.is_nominal:
+            produces.update({f"weight_{name}_{direction}" for direction in ["up", "down"]})
+    for c in produces:
+        self.produces.add(optional_column("btag_{LMT}" + c))
 
 @fixed_wp_btag_weights.setup
 def fixed_wp_btag_weights_setup(
@@ -260,12 +257,10 @@ def fixed_wp_btag_weights_setup(
     inputs: dict,
     reader_targets: InsertableDict,
 ) -> None:
-    import correctionlib
-
     correction_set_btag_wp_corr = setup_btag(self, reqs)
 
     # fix for change in nomenclature of deepJet scale factors for light hadronFlavour jets
-    if self.config_inst.x.run == 2:
+    if self.config_inst.x.year <= 2018:
         self.btag_sf_incl_corrector = correction_set_btag_wp_corr[f"{self.btag_algorithm}_incl"]
     else:
         self.btag_sf_incl_corrector = correction_set_btag_wp_corr[f"{self.btag_algorithm}_light"]
@@ -315,20 +310,14 @@ def fixed_wp_btag_weights_requires(self: Producer, reqs: dict) -> None:
         datasets=datasets,
         variables=self.variables,
         processes=process,
-        algorithms=[self.btag_config],
     )
 
 
 @producer(
     uses={"mc_weight", "Jet.{hadronFlavour,pt,eta}"},
+    btag_config=None,
     # only run on mc
     mc_only=True,
-    # function to determine the correction file
-    get_btag_file=(lambda self, external_files: external_files.btag_sf_corr),
-    # function to determine the btag sf config
-    get_btag_config=(lambda self: BTagSFConfig.new(self.config_inst.x.btag_sf)),
-    # function to determine the efficiency variables
-    get_btag_vars=(lambda self: self.config_inst.x.default_btag_variables),
 )
 def btag_efficiency_hists(
     self: Producer,
@@ -394,8 +383,6 @@ def btag_efficiency_hists_setup(
     inputs: dict,
     reader_targets: InsertableDict,
 ) -> None:
-    import correctionlib
-
     setup_btag(self, reqs)
     self.variable_insts.append(od.Variable(
         name="btag_wp",
@@ -407,4 +394,4 @@ def btag_efficiency_hists_setup(
 
 @btag_efficiency_hists.requires
 def btag_efficiency_hists_requires(self: Producer, reqs: dict) -> None:
-    setup_btag(self, reqs)
+    req_btag(self, reqs)
