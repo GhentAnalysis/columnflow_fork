@@ -119,76 +119,83 @@ def jet_btag_requires(self: Producer, reqs: dict) -> None:
     uses={"Jet.{pt,eta,hadronFlavour}", jet_btag},
     btag_config=None,
     mc_only=True,
+    weight_name="btag_weight",
 )
 def fixed_wp_btag_weights(
     self: Producer,
     events: ak.Array,
-    working_points: Iterable[str],
+    working_points: Iterable[str] | str,
     jet_mask: ak.Array[bool] = None,
     **kwargs,
 ) -> ak.Array:
+
+    working_points = sorted(law.util.make_list(working_points), key=lambda x: "LMT".find(x))
+
     # get the total number of jets in the chunk
     jets = events.Jet[jet_mask] if jet_mask is not None else events.Jet
-
-    n_jets_all = ak.sum(ak.num(jets, axis=1))
-    np.ones(n_jets_all, dtype=np.float32)
-
-    # get flat inputs
-    flavor = ak.flatten(jets.hadronFlavour, axis=1)
-    abs_eta = ak.flatten(abs(jets.eta), axis=1)
-    pt = ak.flatten(jets.pt, axis=1)
-    btags = {wp: ak.flatten(jets[f"btag_{wp}"], axis=1) for wp in working_points}
+    jets = set_ak_column(jets, "abseta", abs(jets.eta))
 
     # helper to create and store the weight
-    def add_weight(syst_name, syst_direction, working_point):
-
+    def add_weight(flavour_group, syst_variation):
         # define a mask that selects the correct flavor to assign to, depending on the systematic
-        flavor_mask = Ellipsis
-        if syst_name == "light":
+        jet_mask = ak.full_like(jets.hadronFlavour, True)
+        if flavour_group == "light":
             # only apply to light flavor
-            flavor_mask = flavor == 0
+            jet_mask = jets.hadronFlavour == 0
             btag_sf_corrector = self.btag_sf_incl_corrector
-        elif syst_name == "heavy":
+        elif flavour_group == "heavy":
             # only apply to heavy flavor
-            flavor_mask = flavor != 0
+            jet_mask = jets.hadronFlavour != 0
             btag_sf_corrector = self.btag_sf_comb_corrector
 
-        # get the flat scale factors
-        sf_flat = btag_sf_corrector(
-            syst_direction,
-            working_point,
-            flavor[flavor_mask],
-            abs_eta[flavor_mask],
-            pt[flavor_mask],
-        )
+        weight = np.ones(len(jets.pt))
+        for i, wp in enumerate([None, *working_points]):
+            next_wp = working_points[i] if wp != working_points[-1] else None
 
-        eff_flat = self.btag_eff_corrector(
-            flavor[flavor_mask],
-            # currently set hard max on pt since overflow could not be changed in correctionlib
-            # (could also manually change the flow)
-            ak.min([pt[flavor_mask], 999 * ak.ones_like(pt[flavor_mask])], axis=0),
-            abs_eta[flavor_mask],
-            working_point,
-        )
+            if wp is None:
+                jet_mask = jet_mask & (~jets[f"btag_{next_wp}"])
+            else:
+                jet_mask = jet_mask & jets[f"btag_{wp}"]
+                if next_wp is not None:
+                    jet_mask = jet_mask & (~jets[f"btag_{next_wp}"])
 
-        # calculate the event weight following:
-        # https://btv-wiki.docs.cern.ch/PerformanceCalibration/fixedWPSFRecommendations/
-        weight_flat = ak.where(btags[working_point][flavor_mask],
-                               sf_flat, (1. - sf_flat * eff_flat) / (1. - eff_flat))
+            selected_jets = jets[jet_mask]
+            flat_input = ak.flatten(selected_jets, axis=1)
 
-        # insert them into an array of ones whose length corresponds to the total number of jets
-        # (without flavor mask)
-        weight_flat_all = np.ones(n_jets_all, dtype=np.float32)
-        weight_flat_all[flavor_mask] = weight_flat
+            # get efficiencies and scale factors for this and next working point
+            def sf_eff_wp(working_point, none_value=0.):
+                if working_point is None:
+                    return (np.full_like(selected_jets.pt, none_value),) * 2
+                sf = btag_sf_corrector(
+                    syst_variation,
+                    working_point,
+                    flat_input.hadronFlavour,
+                    flat_input.abseta,
+                    flat_input.pt,
+                )
+                eff = self.btag_eff_corrector(
+                    flat_input.hadronFlavour,
+                    # currently set hard max on pt since overflow could not be changed in correctionlib
+                    # (could also manually change the flow)
+                    ak.min([flat_input.pt, 999 * ak.ones_like(flat_input.pt)], axis=0),
+                    flat_input.abseta,
+                    working_point,
+                )
+                return sf, eff
 
-        # enforce the correct shape and create the product over all jets per event
-        sf = layout_ak_array(weight_flat_all, jets.pt)
+            sf_this_wp, eff_this_wp = sf_eff_wp(wp, none_value=1.)
+            sf_next_wp, eff_next_wp = sf_eff_wp(next_wp, none_value=0.)
 
-        weight = ak.prod(sf, axis=1, mask_identity=False)
+            # calculate the event weight following:
+            # https://btv-wiki.docs.cern.ch/PerformanceCalibration/fixedWPSFRecommendations/
+            weight_flat = (sf_this_wp * eff_this_wp - sf_next_wp * eff_next_wp) / (eff_this_wp - eff_next_wp)
 
-        column_name = f"btag_{working_point}_weight_{syst_name}"
-        if syst_direction != "central":
-            column_name += "_" + syst_direction
+            # enforce the correct shape and create the product over all jets per event
+            weight = weight * ak.prod(layout_ak_array(weight_flat, selected_jets.pt), axis=1, mask_identity=False)
+
+        column_name = f"{self.weight_name}_{flavour_group}"
+        if syst_variation != "central":
+            column_name += "_" + syst_variation.replace("uncorrelated", str(self.config_inst.x.year))
 
         if ak.any((weight == np.inf) | ak.is_none(ak.nan_to_none(weight)) | ak.any(weight < 0)):
             weight = ak.nan_to_num(weight, nan=1.0, posinf=1.0, neginf=1.0)
@@ -200,17 +207,21 @@ def fixed_wp_btag_weights(
 
         return set_ak_column(events, column_name, weight, value_type=np.float32)
 
-    for wp in working_points:
-        # nominal weight and those of all method intrinsic uncertainties
-        for syst_name in self.btag_uncs:
-            events = add_weight(syst_name, "central", wp)
+    # nominal weight and those of all method intrinsic uncertainties
+    for flavour_group in self.flavour_groups:
+        events = add_weight(flavour_group, "central")
 
-            # only calculate up and down variations for nominal shift
-            if self.local_shift_inst.is_nominal:
-                for direction in ["up", "down"]:
-                    events = add_weight(syst_name, direction, wp)
+        # only calculate up and down variations for nominal shift
+        if self.local_shift_inst.is_nominal:
+            for direction in ["up", "down"]:
+                for corr in ["", "correlated", "uncorrelated"]:
+                    variation = direction if not corr else f"{direction}_{corr}"
+                    events = add_weight(flavour_group, variation)
 
-    return events
+    # nominal weights:
+    nominal = np.prod([events[f"{self.weight_name}_{fg}"] for fg in self.flavour_groups], axis=0)
+
+    return set_ak_column(events, nominal, self.weight_name)
 
 
 @fixed_wp_btag_weights.init
@@ -235,20 +246,24 @@ def fixed_wp_btag_weights_init(
     btag_sf_jec_source = "" if self.jec_source == "Total" else self.jec_source  # noqa
 
     # save names of method-intrinsic uncertainties
-    self.btag_uncs = {
+    self.flavour_groups = {
         "light",
         "heavy",
     }
 
     # add uncertainty sources of the method itself
     produces = set()
-    for name in self.btag_uncs:
+    produces.add(self.weight_name)
+    for name in self.flavour_groups:
         # nominal columns
-        produces.add(f"weight_{name}")
+        produces.add(f"{self.weight_name}_{name}")
         if shift_inst.is_nominal:
-            produces.update({f"weight_{name}_{direction}" for direction in ["up", "down"]})
-    for c in produces:
-        self.produces.add(optional_column("btag_{LMT}" + c))
+            produces.update({
+                f"{self.weight_name}_{name}_{direction}" + ("" if not corr else f"_{corr}")
+                for direction in ["up", "down"]
+                for corr in ["", "correlated", self.config_inst.x.year]
+            })
+
 
 
 @fixed_wp_btag_weights.setup
