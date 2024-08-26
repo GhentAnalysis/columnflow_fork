@@ -250,6 +250,7 @@ def fixed_wp_btag_weights_init(
     for c in produces:
         self.produces.add(optional_column("btag_{LMT}" + c))
 
+
 @fixed_wp_btag_weights.setup
 def fixed_wp_btag_weights_setup(
     self: Producer,
@@ -332,7 +333,12 @@ def btag_efficiency_hists(
 
     assert "event_no_btag" in results.aux, "results.aux does not contain mask 'event_no_btag'"
 
-    selected_events = events[results.x.event_no_btag]
+    # jet selection and event selection
+    jets = events.Jet[results.objects.Jet.Jet][results.x.event_no_btag]
+    selected_events = ak.Array({
+        "Jet": jets,
+        "mc_weight": events.mc_weight[results.x.event_no_btag],
+    })
 
     histogram = hist.Hist.new.IntCat([0, 4, 5], name="hadronFlavour")  # Jet hadronFlavour 0, 4, or 5
     # add variables for binning the efficiency
@@ -346,8 +352,8 @@ def btag_efficiency_hists(
 
     fill_kwargs = {
         # broadcast event weight and process-id to jet weight
-        "hadronFlavour": ak.flatten(selected_events.Jet.hadronFlavour),
-        "weight": ak.flatten(ak.broadcast_arrays(selected_events.mc_weight, selected_events.Jet.hadronFlavour)[0]),
+        "hadronFlavour": ak.flatten(jets.hadronFlavour),
+        "weight": ak.flatten(ak.broadcast_arrays(selected_events.mc_weight, jets.hadronFlavour)[0]),
     }
 
     # loop over Jet variables in which the efficiency is binned
@@ -356,10 +362,10 @@ def btag_efficiency_hists(
         if isinstance(expr, str):
             route = Route(expr)
 
-            def expr(selected_events, *args, **kwargs):
-                if len(selected_events) == 0 and not has_ak_column(selected_events, route):
+            def expr(evs, *args, **kwargs):
+                if len(evs) == 0 and not has_ak_column(evs, route):
                     return ak.Array(np.array([], dtype=np.float32))
-                return route.apply(selected_events, null_value=var_inst.null_value)
+                return route.apply(evs, null_value=var_inst.null_value)
 
         # apply the variable (flatten to fill histogram)
         fill_kwargs[var_inst.name] = ak.flatten(expr(selected_events))
