@@ -149,7 +149,6 @@ class BTagEfficiency(
         from columnflow.plotting.cmsGhent.plot_util import cumulate
 
         variable_insts = list(map(self.config_inst.get_variable, self.variables))
-        process_insts = []
 
         # histogram for the tagged and all jets (combine all datasets)
         histogram = 0
@@ -162,7 +161,6 @@ class BTagEfficiency(
             )
             h_in = inp["collection"][0]["hists"].load(formatter="pickle")["btag_efficiencies"]
             histogram = histogram + h_in * xsec / inp["collection"][0]["stats"].load()["sum_mc_weight"]
-            process_insts.extend(dt_process_insts)
 
         if not histogram:
             raise Exception(
@@ -196,7 +194,7 @@ class BTagEfficiency(
             # create a dummy histogram dict for plotting with the first process
             # TODO change process name to the relevant process group
             hist_dict = OrderedDict((
-                (process_insts[-1],
+                (self.config_inst.get_process(self.processes[-1]),
                  efficiency_hist[{
                      "hadronFlavour": hist.loc(hadronFlavour),
                      "btag_wp": wp,
