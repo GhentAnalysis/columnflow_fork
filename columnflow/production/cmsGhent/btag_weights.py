@@ -165,7 +165,7 @@ def fixed_wp_btag_weights(
             # get efficiencies and scale factors for this and next working point
             def sf_eff_wp(working_point, none_value=0.):
                 if working_point is None:
-                    return (np.full_like(selected_jets.pt, none_value),) * 2
+                    return (np.full_like(flat_input.pt, none_value),) * 2
                 sf = btag_sf_corrector(
                     syst_variation,
                     working_point,
@@ -221,7 +221,7 @@ def fixed_wp_btag_weights(
     # nominal weights:
     nominal = np.prod([events[f"{self.weight_name}_{fg}"] for fg in self.flavour_groups], axis=0)
 
-    return set_ak_column(events, nominal, self.weight_name)
+    return set_ak_column(events, self.weight_name, nominal)
 
 
 @fixed_wp_btag_weights.init
@@ -252,18 +252,16 @@ def fixed_wp_btag_weights_init(
     }
 
     # add uncertainty sources of the method itself
-    produces = set()
-    produces.add(self.weight_name)
+    self.produces = {self.weight_name}
     for name in self.flavour_groups:
         # nominal columns
-        produces.add(f"{self.weight_name}_{name}")
+        self.produces.add(f"{self.weight_name}_{name}")
         if shift_inst.is_nominal:
-            produces.update({
+            self.produces.update({
                 f"{self.weight_name}_{name}_{direction}" + ("" if not corr else f"_{corr}")
                 for direction in ["up", "down"]
                 for corr in ["", "correlated", self.config_inst.x.year]
             })
-
 
 
 @fixed_wp_btag_weights.setup
