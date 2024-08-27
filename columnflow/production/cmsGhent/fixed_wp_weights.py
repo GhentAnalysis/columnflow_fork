@@ -62,6 +62,9 @@ class FixedWpConfig:
             self.pass_only &= self.single_wp
             logger.warning_once("pass_only option is ignored since single_wp option is disabled")
 
+    def copy(self, /, **changes):
+        return dataclasses.replace(self, **changes)
+
 
 def init_fixed_wp(self: Producer | WeightProducer, add_weight_inputs_vars=True):
     if self.wp_config is None:
