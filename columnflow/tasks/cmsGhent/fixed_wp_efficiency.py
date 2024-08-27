@@ -59,18 +59,19 @@ class FixedWPEfficiencyBase(
         f"""
         Resolve values *params* and check against possible default values
 
-        Check the values in *params* against the default value 
+        Check the values in *params* against the default value
         ``"default_{cls.tag_name}_variables"`` in the current config inst.
         For more information, see
         :py:meth:`~columnflow.tasks.framework.base.ConfigTask.resolve_config_default_and_groups`.
         """
         redo_default_variables = False
-        if "variables" in params:
-            # when empty, use the config default
-            if not params["variables"]:
-                redo_default_variables = True
+        # when empty, use the config default
+        if not params.get("variables", None):
+            redo_default_variables = True
 
+        breakpoint()
         params = super().resolve_param_values(params)
+        breakpoint()
 
         config_inst = params.get("config_inst")
         if not config_inst:

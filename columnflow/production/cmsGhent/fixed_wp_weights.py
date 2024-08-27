@@ -33,14 +33,14 @@ class FixedWpConfig:
     get_eff_task: Callable
     flavour_input: str
     flavour_binning: Sequence[int]
-    flavour_transform: Callable = lambda x: x,
+    flavour_transform: Callable = lambda x: x
     algorithm: str | None = None
     objects: Sequence[str] | None = None
     object_mapping: Sequence[Callable] | dict[str, Callable] | None = None
     default_eff_variables: Sequence[str] | None = None
     discriminator_range: tuple[float, float] = (0, 1)
-    single_wp: bool = False,
-    pass_only: bool = False,
+    single_wp: bool = False
+    pass_only: bool = False
 
     def __post_init__(self):
         if isinstance(self.correction_sets, str):
