@@ -69,9 +69,7 @@ class FixedWPEfficiencyBase(
         if not params.get("variables", None):
             redo_default_variables = True
 
-        breakpoint()
         params = super().resolve_param_values(params)
-        breakpoint()
 
         config_inst = params.get("config_inst")
         if not config_inst:
