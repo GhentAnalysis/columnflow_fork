@@ -9,7 +9,7 @@ from columnflow.util import maybe_import
 ak = maybe_import("awkward")
 
 
-def efficiency_task_import(self):
+def efficiency_task_import():
     from columnflow.tasks.cmsGhent.fixed_wp_efficiency import BTagEfficiency
     return BTagEfficiency
 
@@ -24,7 +24,7 @@ BTagConfigRun2 = FixedWpConfig(
     wps="L/M/T",
     discriminator="btagDeepFlavB",
     algorithm="deepJet",
-    get_sf_file=lambda self, external_files: external_files.btag_sf_corr,
+    get_sf_file=lambda external_files: external_files.btag_sf_corr,
     get_eff_task=efficiency_task_import,
     flavour_input="hadronFlavour",
     flavour_binning=[0, 4, 5],
@@ -32,13 +32,13 @@ BTagConfigRun2 = FixedWpConfig(
 
 jet_btag = fixed_wp_tag.derive(
     "jet_btag",
-    cls_dict=dict(config=BTagConfigRun2),
+    cls_dict=dict(wp_config=BTagConfigRun2),
 )
 
 btag_fixed_wp_weights = fixed_wp_weights.derive(
     "btag_fixed_wp_weights",
     cls_dict=dict(
-        config=BTagConfigRun2,
+        wp_config=BTagConfigRun2,
         tag_producer=None,
         sf_inputs=lambda syst_variation, wp, flat_input: [
             syst_variation,
@@ -60,5 +60,5 @@ btag_fixed_wp_weights = fixed_wp_weights.derive(
 
 btag_efficiency_hists = fixed_wp_efficiency_hists.derive(
     "btag_efficiency_hists",
-    cls_dict=dict(config=BTagConfigRun2),
+    cls_dict=dict(wp_config=BTagConfigRun2),
 )

@@ -69,12 +69,13 @@ class FixedWpConfig:
 def init_fixed_wp(self: Producer | WeightProducer, add_weight_inputs_vars=True):
     if self.wp_config is None:
         return
-    for key, value in dataclasses.asdict(self.config).items():
+    for key, value in dataclasses.asdict(self.wp_config).items():
         setattr(self, key, value)
 
-    self.uses.add([f"{obj}.{self.discriminator}" for obj in self.objects])
+    uses_objects = self.objects if self.object_mapping is None else [self.object]
+    self.uses.update([f"{obj}.{self.discriminator}" for obj in uses_objects])
     if add_weight_inputs_vars:
-        self.uses.update({f"{obj}.{self.flavour_input}" for obj in self.objects})
+        self.uses.update({f"{obj}.{self.flavour_input}" for obj in uses_objects})
         if f"default_{self.tag_name}_variables" not in self.config_inst.aux:
             logger.warning_once(
                 f"no default {self.tag_name} efficiency variables defined in config",
@@ -85,7 +86,7 @@ def init_fixed_wp(self: Producer | WeightProducer, add_weight_inputs_vars=True):
         self.variable_insts = list(map(self.config_inst.get_variable, self.variables))
         self.uses.update({
             inp.replace(self.object, obj)
-            for obj in self.objects
+            for obj in uses_objects
             for variable_inst in self.variable_insts
             for inp in (
                 [variable_inst.expression]
@@ -367,7 +368,7 @@ def fixed_wp_weights_requires(self: Producer, reqs: dict) -> None:
     # only run on mc
     mc_only=True,
     get_no_tag_selection=lambda self, results: results.x(f"event_no_{self.tag_name}", None),
-    require_func=req_fixed_wp,
+    requires_func=req_fixed_wp,
 )
 def fixed_wp_efficiency_hists(
     self: Producer,
@@ -377,18 +378,26 @@ def fixed_wp_efficiency_hists(
     **kwargs,
 ) -> ak.Array:
     if hists is None or self.wp_config is None:
+        logger.warning_once(self.cls_name + " did not get any histograms")
         return events
 
     no_tag_selection = self.get_no_tag_selection(results)
     assert no_tag_selection is not None, f"results does not contain mask without {self.tag_name} selection"
 
-    # jet selection and event selection
-    object = ak.concatenate(
-        [events.Jet[results.objects[obj][obj]][no_tag_selection] for obj in self.objects],
-        axis=1
-    )
+    # jet selection
+    if self.object_mapping is None:
+        object_data = ak.concatenate(
+            [events[obj][results.objects[obj][obj]] for obj in self.objects],
+            axis=1
+        )
+    else:
+        object_data = events[self.object][results.objects[self.object][self.object]]
+
+    # event selection
+    object_data = object_data[no_tag_selection]
+
     selected_events = ak.Array({
-        self.object: object,
+        self.object: object_data,
         "mc_weight": events.mc_weight[no_tag_selection],
     })
 
@@ -404,8 +413,8 @@ def fixed_wp_efficiency_hists(
 
     fill_kwargs = {
         # broadcast event weight and process-id to jet weight
-        self.flavour_input: ak.flatten(object[self.flavour_input]),
-        "weight": ak.flatten(ak.broadcast_arrays(selected_events.mc_weight, object[self.flavour_input])[0]),
+        self.flavour_input: ak.flatten(object_data[self.flavour_input]),
+        "weight": ak.flatten(ak.broadcast_arrays(selected_events.mc_weight, object_data[self.flavour_input])[0]),
     }
 
     # loop over Jet variables in which the efficiency is binned
