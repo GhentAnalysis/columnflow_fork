@@ -11,7 +11,7 @@ from columnflow.tasks.framework.mixins import (
     DatasetsProcessesMixin, SelectorMixin,
 )
 from columnflow.tasks.framework.plotting import (
-    PlotBase, PlotBase2D,
+    PlotBase, PlotBase2D, PlotBase1D
 )
 
 from columnflow.tasks.selection import MergeSelectionStats
@@ -35,6 +35,17 @@ class FixedWPEfficiencyBase(
         default="columnflow.plotting.plot_functions_2d.plot_2d",
         add_default_to_description=True,
     )
+
+    control_plot_function = PlotBase.plot_function.copy(
+        default="columnflow.plotting.plot_functions_1d.plot_variable_per_process",
+        add_default_to_description=True,
+    )
+
+    control_skip_ratio = PlotBase1D.skip_ratio.copy()
+    control_density = PlotBase1D.density.copy()
+    control_yscale = PlotBase1D.yscale.copy()
+    control_shape_norm = PlotBase1D.shape_norm.copy()
+    control_hide_errors = PlotBase1D.hide_errors.copy()
 
     sandbox = dev_sandbox(law.config.get("analysis", "default_columnar_sandbox"))
 
@@ -134,6 +145,13 @@ class FixedWPEfficiencyBase(
                 for flav in self.flavours.values()
                 for wp in self.wps
             ],
+            "controls": [
+                self.target(f"control_{name}") for name in [
+                    self.flav_name,
+                    f"{self.tag_name}_wp",
+                    *self.variables,
+                ]
+            ]
         }
 
     def get_plot_parameters(self):
@@ -141,6 +159,13 @@ class FixedWPEfficiencyBase(
         params = super().get_plot_parameters()
         dict_add_strict(params, "legend_title", "Processes")
         return params
+
+    def get_control_plot_parameter(self):
+        params = PlotBase.get_plot_parameters(self)
+        for pp in ["skip_ratio", "density", "yscale", "shape_norm", "hide_errors"]:
+            params[pp] = getattr(self, f"control_{pp}")
+        return params
+
 
     @law.decorator.log
     def run(self):
@@ -153,16 +178,20 @@ class FixedWPEfficiencyBase(
         variable_insts = list(map(self.config_inst.get_variable, self.variables))
 
         # histogram for the tagged and all jets (combine all datasets)
-        histogram = 0
+        histogram = {}
         for dataset, inp in self.input().items():
             dataset_inst = self.config_inst.get_dataset(dataset)
-            dt_process_insts = {process_inst for process_inst, _, _ in dataset_inst.walk_processes()}
+            dt_process_insts: set[od.Process] = {process_inst for process_inst, _, _ in dataset_inst.walk_processes()}
+            union_process = od.Process(
+                name="_".join([process_inst.name for process_inst in dt_process_insts]),
+                label=", ".join([process_inst.label for process_inst in dt_process_insts]),
+            )
             xsec = sum(
                 process_inst.get_xsec(self.config_inst.campaign.ecm).nominal
                 for process_inst in dt_process_insts
             )
             h_in = inp["collection"][0]["hists"].load(formatter="pickle")[f"{self.tag_name}_efficiencies"]
-            histogram = histogram + h_in * xsec / inp["collection"][0]["stats"].load()["sum_mc_weight"]
+            histogram[union_process] = h_in * xsec / inp["collection"][0]["stats"].load()["sum_mc_weight"]
 
         if not histogram:
             raise Exception(
@@ -172,13 +201,14 @@ class FixedWPEfficiencyBase(
             )
 
         # combine tagged and inclusive histograms to an efficiency histogram
-        cum_histogram = cumulate(histogram, direction="above", axis=f"{self.tag_name}_wp")
+        sum_histogram = sum(histogram.values())
+        cum_histogram = cumulate(sum_histogram, direction="above", axis=f"{self.tag_name}_wp")
         incl = cum_histogram[{f"{self.tag_name}_wp": slice(0, 1)}].values()
 
         axes = OrderedDict(zip(cum_histogram.axes.name, cum_histogram.axes))
         axes[f"{self.tag_name}_wp"] = hist.axis.StrCategory(self.wps, name=f"{self.tag_name}_wp", label="working point")
 
-        efficiency_hist = hist.Hist(*axes.values(), name=histogram.name, storage=hist.storage.Weight())
+        efficiency_hist = hist.Hist(*axes.values(), name=sum_histogram.name, storage=hist.storage.Weight())
         efficiency_hist.view()[:] = cum_histogram[{f"{self.tag_name}_wp": slice(1, None)}].view()
         efficiency_hist = efficiency_hist / incl
 
@@ -221,6 +251,29 @@ class FixedWPEfficiencyBase(
             )
             for p in self.output()["plots"][i]:
                 p.dump(fig, formatter="mpl")
+
+        for control_plot_var in [self.flav_name, f"{self.tag_name}_wp", *self.variables]:
+            axis = sum_histogram.axes[control_plot_var]
+            if control_plot_var in self.variables:
+                variable_inst = self.config_inst.get_variable(control_plot_var)
+            elif control_plot_var == self.flav_name:
+                variable_inst = od.Variable(
+                    name=axis.name, binning=axis.centers.edges, discrete_x=True,
+                    x_labels=[axis.bin(i) for i in range(axis.edges)],
+                )
+            else:
+                variable_inst = od.Variable(name=f"{self.tag_name} score", binning=axis.centers.edges)
+
+            fig, _ = self.call_plot_func(
+                self.plot_function,
+                hists={process_inst: h.project(control_plot_var) for process_inst, h in histogram.items()},
+                config_inst=self.config_inst,
+                category_inst=od.Category(name=f"baseline, excluding\n{self.tag_name} selection"),
+                variable_insts=[variable_inst.copy_shallow()],
+                **self.get_control_plot_parameter(),
+            )
+
+
 
 
 class BTagEfficiency(FixedWPEfficiencyBase):
