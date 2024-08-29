@@ -308,4 +308,4 @@ class LeptonMVAEfficiency(FixedWPEfficiencyBase):
     tag_name = "lepton_mva"
     flav_name = "pdgId"
     flavours = {11: "electron", 13: "muon"}
-    wps = ["VeryLoose", "Loose", "Medium", "Tight"]
+    wps = ["VLoose", "Loose", "Medium", "Tight"]
