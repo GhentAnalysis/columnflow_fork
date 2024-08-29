@@ -207,7 +207,6 @@ def fixed_wp_weights(
     def add_weight(obj, syst_variation, wps):
         # define a mask that selects the correct flavor to assign to, depending on the systematic
 
-        t0 = time.time()
         sf_corrector = self.correctors[obj]
         data = object_data[obj]
 
@@ -233,7 +232,6 @@ def fixed_wp_weights(
 
             # get efficiencies and scale factors for this and next working point
             def sf_eff_wp(working_point, none_value=0.):
-                nonlocal t0
                 if working_point is None:
                     return (none_value,) * 2
                 sf_inputs = self.sf_inputs(syst_variation, working_point, flat_wp_data)
