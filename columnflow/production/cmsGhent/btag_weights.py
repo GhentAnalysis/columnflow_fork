@@ -7,6 +7,7 @@ from columnflow.production.cmsGhent.fixed_wp_weights import (
 from columnflow.util import maybe_import
 
 ak = maybe_import("awkward")
+np = maybe_import("numpy")
 
 
 def efficiency_task_import():
@@ -39,21 +40,15 @@ btag_fixed_wp_weights = fixed_wp_weights.derive(
     "btag_fixed_wp_weights",
     cls_dict=dict(
         wp_config=BTagConfigRun2,
-        tag_producer=None,
-        sf_inputs=lambda syst_variation, wp, flat_input: [
+        tag_producer=jet_btag,
+        syst_corr_name="correlated",
+        syst_uncorr_name="uncorrelated",
+        sf_inputs=lambda self, syst_variation, wp, flat_input: [
             syst_variation,
             wp,
             flat_input.hadronFlavour,
-            flat_input.pt,
-            abs(flat_input.eta)
-        ],
-        eff_inputs=lambda wp, flat_input: [
-            abs(flat_input.pdgId),
-            # currently set hard max on pt since overflow could not be changed in correctionlib
-            # (could also manually change the flow)
-            ak.min([flat_input.pt, 999 * ak.ones_like(flat_input.pt)], axis=0),
             abs(flat_input.eta),
-            wp,
+            flat_input.pt,
         ],
     )
 )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import law
 import order as od
 from typing import Iterable, Sequence, Callable
+import time
 from collections import OrderedDict
 import dataclasses
 
@@ -41,6 +42,7 @@ class FixedWpConfig:
     discriminator_range: tuple[float, float] = (0, 1)
     single_wp: bool = False
     pass_only: bool = False
+    nano_objects: list[str] = dataclasses.field(init=False, repr=False)
 
     def __post_init__(self):
         if isinstance(self.correction_sets, str):
@@ -48,19 +50,22 @@ class FixedWpConfig:
         if self.objects is None:
             self.objects = [self.object]
         assert len(self.correction_sets) == len(self.objects), "need correction set for each object and v.v."
+        self.nano_objects = self.objects if self.object_mapping is None else [self.object]
         if isinstance(self.wps, str):
             self.wps = self.wps.split("/")
         if self.algorithm is None:
             self.algorithm = self.discriminator
         if self.default_eff_variables is None:
-            self.default_eff_variables = (f"{self.tag_name}_{self.object}_pt", f"{self.tag_name}_{self.object}_eta")
+            var_prefix = f"{self.tag_name}_{self.object.lower()}"
+            self.default_eff_variables = (f"{var_prefix}_pt", f"{var_prefix}_eta")
         if isinstance(self.object_mapping, dict):
             assert set(self.objects) == set(self.object_mapping)
         elif self.object_mapping is not None:
             self.object_mapping = dict(zip(self.objects, self.object_mapping))
         if self.pass_only:
             self.pass_only &= self.single_wp
-            logger.warning_once("pass_only option is ignored since single_wp option is disabled")
+            if not self.pass_only:
+                logger.warning_once("pass_only option is ignored since single_wp option is disabled")
 
     def copy(self, /, **changes):
         return dataclasses.replace(self, **changes)
@@ -72,10 +77,10 @@ def init_fixed_wp(self: Producer | WeightProducer, add_weight_inputs_vars=True):
     for key, value in dataclasses.asdict(self.wp_config).items():
         setattr(self, key, value)
 
-    uses_objects = self.objects if self.object_mapping is None else [self.object]
-    self.uses.update([f"{obj}.{self.discriminator}" for obj in uses_objects])
+    self.uses.update([f"{obj}.{self.discriminator}" for obj in self.nano_objects])
+
     if add_weight_inputs_vars:
-        self.uses.update({f"{obj}.{self.flavour_input}" for obj in uses_objects})
+        self.uses.update({f"{obj}.{self.flavour_input}" for obj in self.nano_objects})
         if f"default_{self.tag_name}_variables" not in self.config_inst.aux:
             logger.warning_once(
                 f"no default {self.tag_name} efficiency variables defined in config",
@@ -86,7 +91,7 @@ def init_fixed_wp(self: Producer | WeightProducer, add_weight_inputs_vars=True):
         self.variable_insts = list(map(self.config_inst.get_variable, self.variables))
         self.uses.update({
             inp.replace(self.object, obj)
-            for obj in uses_objects
+            for obj in self.nano_objects
             for variable_inst in self.variable_insts
             for inp in (
                 [variable_inst.expression]
@@ -126,9 +131,12 @@ def fixed_wp_tag(
     **kwargs,
 ) -> ak.Array:
     if self.wp_config is None:
+        logger.warning_once(self.cls_name + " no config",
+            f"no {self.cls_name} config defined. Not doing anything"
+        )
         return events
     for wp in working_points:
-        for obj in self.objects:
+        for obj in self.nano_objects:
             tag = events[obj][self.discriminator] >= self.wp_values[wp]
             if object_mask is not None:
                 tag = tag & object_mask
@@ -152,72 +160,84 @@ def fixed_wp_tag_init(self: Producer):
     syst_corr_name="syst",
     syst_uncorr_name="stat",
     get_dataset_groups=lambda self: self.config_inst.x(f"{self.tag_name}_dataset_groups", None),
-
-    # example for lepton mva
-    sf_inputs=lambda syst_variation, wp, flat_input: [syst_variation, wp, flat_input.pt, abs(flat_input.eta)],
-    eff_inputs=lambda wp, flat_input: [
-        abs(flat_input.pdgId),
-        # currently set hard max on pt since overflow could not be changed in correctionlib
-        # (could also manually change the flow)
-        ak.min([flat_input.pt, 999 * ak.ones_like(flat_input.pt)], axis=0),
-        abs(flat_input.eta),
+    sf_inputs=lambda self, syst_variation, wp, flat_input: [syst_variation, wp, flat_input.pt, abs(flat_input.eta)],
+    eff_inputs=lambda self, wp, flat_input: [
+        self.flavour_transform(flat_input[self.flavour_input]),
         wp,
+        flat_input.pt,
+        abs(flat_input.eta),
     ],
 )
 def fixed_wp_weights(
     self: Producer,
     events: ak.Array,
     working_points: Iterable[str] | str,
-    object_mask: ak.Array[bool] = None,
+    object_mask: ak.Array[bool] | dict[ak.Array[bool]] = None,
     **kwargs,
 ) -> ak.Array:
     if self.wp_config is None:
+        logger.warning_once(self.cls_name + " no config",
+            f"no {self.cls_name} config defined. Not doing anything"
+        )
         return events
     working_points = sorted(law.util.make_list(working_points), key=lambda x: self.wps.index(x))
 
-    # get the total number of jets in the chunk
-    jets = events.Jet[object_mask] if object_mask is not None else events.Jet
-    jets = set_ak_column(jets, "abseta", abs(jets.eta))
-    if self.object_mapping is not None:
-        assert self.object in events.fields, f"object mapping requires {self.object} in events array"
-        object_data = {obj: obj_map(events[self.object]) for obj, obj_map in self.object_mapping.items()}
+
+
+    if self.object_mapping is not None or len(self.objects) == 1:
+        assert self.object in events.fields, f"cannot find {self.object} in events array"
+        if object_mask is None:
+            object_mask = Ellipsis
+        else:
+            assert isinstance(object_mask, ak.Array), "require one mask for {self.object}"
+        object_data = {obj: obj_map(events[self.object][object_mask]) for obj, obj_map in self.object_mapping.items()}
     else:
-        object_data = {obj: events[obj] for obj in self.objects}
+        if object_mask is None:
+            object_mask = {obj: Ellipsis for obj in self.objects}
+        else:
+            assert isinstance(object_mask, dict) and set(object_mask) == set(self.objects), \
+                f"need an object mask for each object in {self.objects}"
+        object_data = {obj: events[obj][object_mask[obj]] for obj in self.objects}
 
     # helper to create and store the weight
-    def add_weight(object, syst_variation, wps):
+    def add_weight(obj, syst_variation, wps):
         # define a mask that selects the correct flavor to assign to, depending on the systematic
 
-        sf_corrector = self.correctors[object]
-        data = object_data[object]
+        t0 = time.time()
+        sf_corrector = self.correctors[obj]
+        data = object_data[obj]
 
-        weight = np.ones(len(jets.pt))
+        weight = np.ones(len(data))
+
+        wps = law.util.make_list(wps)
 
         if not self.pass_only:
             wps = [None, *wps]
-
         for i, wp in enumerate(wps):
-            next_wp = wps[i] if wp != wps[-1] else None
+            next_wp = wps[i + 1] if wp != wps[-1] else None
 
             if wp is None:
-                wp_mask = ~jets[f"{self.tag_name}_{next_wp}"]
+                wp_mask = ~data[f"{self.tag_name}_{next_wp}"]
             else:
-                wp_mask = jets[f"{self.tag_name}_{wp}"]
+                wp_mask = data[f"{self.tag_name}_{wp}"]
                 if next_wp is not None:
-                    wp_mask = wp_mask & (~jets[f"{self.tag_name}_{next_wp}"])
+                    wp_mask = wp_mask & (~data[f"{self.tag_name}_{next_wp}"])
 
             wp_data = data[wp_mask]
+            shape_reference = wp_data[self.flavour_input]
             flat_wp_data = ak.flatten(wp_data, axis=1)
-            shape_reference = flat_wp_data[self.flavour_input]
 
             # get efficiencies and scale factors for this and next working point
             def sf_eff_wp(working_point, none_value=0.):
+                nonlocal t0
                 if working_point is None:
                     return (none_value,) * 2
-                sf = sf_corrector(*self.sf_input(syst_variation, working_point, flat_wp_data))
+                sf_inputs = self.sf_inputs(syst_variation, working_point, flat_wp_data)
+                sf = sf_corrector(*sf_inputs)
                 if self.pass_only:
                     return sf, none_value
-                eff = self.eff_corrector(*self.eff_input(working_point, flat_wp_data))
+                eff_inputs = self.eff_inputs(working_point, flat_wp_data)
+                eff = self.eff_corrector(*eff_inputs)
                 return sf, eff
 
             sf_this_wp, eff_this_wp = sf_eff_wp(wp, none_value=1.)
@@ -227,10 +247,10 @@ def fixed_wp_weights(
             # https://btv-wiki.docs.cern.ch/PerformanceCalibration/fixedWPSFRecommendations/
             weight_flat = (sf_this_wp * eff_this_wp - sf_next_wp * eff_next_wp) / (eff_this_wp - eff_next_wp)
 
-            # enforce the correct shape and create the product over all jets per event
+            # enforce the correct shape and create the product over all objects per event
             weight = weight * ak.prod(layout_ak_array(weight_flat, shape_reference), axis=1, mask_identity=False)
 
-        column_name = f"{self.weight_name}{f'_{wps[0]}' if self.single_wp else ''}_{object}"
+        column_name = f"{self.weight_name}{f'_{wps[0]}' if self.single_wp else ''}_{obj}"
         if syst_variation != "central":
             column_name += "_" + syst_variation.replace(self.syst_uncorr_name, str(self.config_inst.x.year))
 
@@ -246,19 +266,18 @@ def fixed_wp_weights(
 
     # nominal weight and those of all method intrinsic uncertainties
     for wps in (working_points if self.single_wp else [working_points]):
-        for flavour_group in self.flavour_groups:
-            events = add_weight(flavour_group, "central", wps)
-
+        for obj in self.objects:
+            events = add_weight(obj, "central", wps)
             # only calculate up and down variations for nominal shift
             if self.local_shift_inst.is_nominal:
                 for direction in ["up", "down"]:
                     for corr in ["", self.syst_uncorr_name, self.syst_corr_name]:
                         variation = direction if not corr else f"{direction}_{corr}"
-                        events = add_weight(flavour_group, variation, wps)
+                        events = add_weight(obj, variation, wps)
 
         # nominal weights:
         weight_name = self.weight_name + (f'_{wps}' if self.single_wp else '')
-        nominal = np.prod([events[f"{weight_name}_{fg}"] for fg in self.flavour_groups], axis=0)
+        nominal = np.prod([events[f"{weight_name}_{fg}"] for fg in self.objects], axis=0)
         events = set_ak_column(events, self.weight_name, nominal)
 
     return events
@@ -273,8 +292,7 @@ def fixed_wp_weights_init(
     init_fixed_wp(self)
 
     self.uses.add(self.tag_producer)
-    if self.weight_name is None:
-        self.weight_name = f"{self.tag_name}_weight"
+    self.weight_name = self.get_weight_name()
 
     # depending on the requested shift_inst, there are three cases to handle:
     #   1. when the nominal shift is requested, the central weight and all variations related to the
@@ -285,20 +303,23 @@ def fixed_wp_weights_init(
     if not shift_inst:
         return
 
-    self.produces.add(self.weight_name)
+    produces = {self.weight_name}
     prod_weight_name = self.weight_name
     if self.single_wp:
         prod_weight_name += "_{%s}" % ",".join(self.wps)
 
     for obj in self.objects:
         # nominal columns
-        self.produces.add(f"{prod_weight_name}_{obj}")
+        produces.add(f"{prod_weight_name}_{obj}")
         if shift_inst.is_nominal:
-            self.produces.update({
+            produces.update({
                 f"{prod_weight_name}_{obj}_{direction}" + ("" if not corr else f"_{corr}")
                 for direction in ["up", "down"]
                 for corr in ["", self.syst_corr_name, self.config_inst.x.year]
             })
+    if self.single_wp:
+        produces = optional_column(produces)
+    self.produces.update(produces)
 
 
 @fixed_wp_weights.setup
@@ -314,6 +335,8 @@ def fixed_wp_weights_setup(
 
     self.correctors = {obj: all_correction_sets[c_set] for obj, c_set in zip(self.objects, self.correction_sets)}
 
+    if self.pass_only:
+        return
     # unpack the b-tagging efficiency
     correction_set_eff = correctionlib.CorrectionSet.from_file(
         reqs["efficiency"].output()["stats"].path,
@@ -330,14 +353,16 @@ def fixed_wp_weights_requires(self: Producer, reqs: dict) -> None:
         return
     req_fixed_wp(self, reqs)
 
-    efficiency_task = self.get_efficiency_task()
+    if self.pass_only:
+        return
+    efficiency_task = self.get_eff_task()
 
     # require efficiency to be ran for the dataset groups
     # default value of datasets to calculate the efficiency is the dataset of the produce task
     datasets = [self.dataset_inst.name]
     process = self.dataset_inst.processes.names()[0]
 
-    if (data_set_groups := self.get_dataset_groups(self.config_inst)) is None:
+    if (data_set_groups := self.get_dataset_groups()) is None:
         logger.warning_once(
             f"no default {self.tag_name} efficiency dataset groups defined in config",
             f"Config does not have an attribute 'x.{self.tag_name}_dataset_groups' that provides  \
@@ -377,7 +402,12 @@ def fixed_wp_efficiency_hists(
     hists: DotDict | dict = None,
     **kwargs,
 ) -> ak.Array:
-    if hists is None or self.wp_config is None:
+    if hists is None:
+        logger.warning_once(self.cls_name + " no config",
+            f"no {self.cls_name} config defined. Not doing anything"
+        )
+        return events
+    if self.wp_config is None:
         logger.warning_once(self.cls_name + " did not get any histograms")
         return events
 
@@ -413,7 +443,7 @@ def fixed_wp_efficiency_hists(
 
     fill_kwargs = {
         # broadcast event weight and process-id to jet weight
-        self.flavour_input: ak.flatten(object_data[self.flavour_input]),
+        self.flavour_input: ak.flatten(self.flavour_transform(object_data[self.flavour_input])),
         "weight": ak.flatten(ak.broadcast_arrays(selected_events.mc_weight, object_data[self.flavour_input])[0]),
     }
 
@@ -453,7 +483,7 @@ def fixed_wp_efficiency_hists_setup(
     if self.wp_config is None:
         return
     setup_fixed_wp(self, reqs)
-    self.variable_insts.append(od.Variable(
+    self.variable_insts.insert(0, od.Variable(
         name=f"{self.tag_name}_wp",
         expression=f"{self.object}.{self.discriminator}",
         binning=[self.discriminator_range[0], *self.wp_values.values(), self.discriminator_range[1]],

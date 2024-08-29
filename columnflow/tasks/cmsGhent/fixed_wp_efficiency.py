@@ -21,6 +21,7 @@ from columnflow.util import dev_sandbox, dict_add_strict
 from columnflow.types import Any
 
 
+
 class FixedWPEfficiencyBase(
     VariablesMixin,
     DatasetsProcessesMixin,
@@ -145,13 +146,14 @@ class FixedWPEfficiencyBase(
                 for flav in self.flavours.values()
                 for wp in self.wps
             ],
-            "controls": [
-                self.target(f"control_{name}") for name in [
+            "controls": {
+                vr: [self.target(f"control_{name}") for name in self.get_plot_names(vr)]
+                for vr in [
                     self.flav_name,
                     f"{self.tag_name}_wp",
                     *self.variables,
                 ]
-            ]
+            }
         }
 
     def get_plot_parameters(self):
@@ -162,8 +164,9 @@ class FixedWPEfficiencyBase(
 
     def get_control_plot_parameter(self):
         params = PlotBase.get_plot_parameters(self)
-        for pp in ["skip_ratio", "density", "yscale", "shape_norm", "hide_errors"]:
+        for pp in ["skip_ratio", "density", "shape_norm", "hide_errors"]:
             params[pp] = getattr(self, f"control_{pp}")
+        params["yscale"] = None if self.control_yscale == law.NO_STR else self.control_yscale
         return params
 
 
@@ -174,6 +177,7 @@ class FixedWPEfficiencyBase(
         import correctionlib
         import correctionlib.convert
         from columnflow.plotting.cmsGhent.plot_util import cumulate
+        from columnflow.plotting.plot_util import use_flow_bins
 
         variable_insts = list(map(self.config_inst.get_variable, self.variables))
 
@@ -182,15 +186,27 @@ class FixedWPEfficiencyBase(
         for dataset, inp in self.input().items():
             dataset_inst = self.config_inst.get_dataset(dataset)
             dt_process_insts: set[od.Process] = {process_inst for process_inst, _, _ in dataset_inst.walk_processes()}
-            union_process = od.Process(
-                name="_".join([process_inst.name for process_inst in dt_process_insts]),
-                label=", ".join([process_inst.label for process_inst in dt_process_insts]),
-            )
-            xsec = sum(
-                process_inst.get_xsec(self.config_inst.campaign.ecm).nominal
-                for process_inst in dt_process_insts
-            )
+            union_process_name = "_".join([process_inst.name for process_inst in dt_process_insts])
+            if self.config_inst.has_process(union_process_name):
+                union_process = self.config_inst.get_process(union_process_name)
+                xsec = union_process.get_xsec(self.config_inst.campaign.ecm).nominal
+            else:
+                union_process = od.Process(
+                    name="_".join([process_inst.name for process_inst in dt_process_insts]),
+                    label=", ".join([process_inst.label for process_inst in dt_process_insts]),
+                    id=-1,
+                )
+                xsec = sum(
+                    process_inst.get_xsec(self.config_inst.campaign.ecm).nominal
+                    for process_inst in dt_process_insts
+                )
             h_in = inp["collection"][0]["hists"].load(formatter="pickle")[f"{self.tag_name}_efficiencies"]
+            for variable_inst in variable_insts:
+                if any(flows := [
+                    getattr(variable_inst, f + "flow", variable_inst.x(f + "flow", False))
+                    for f in ["under", "over"]
+                ]):
+                    h_in = use_flow_bins(h_in, variable_inst.name, *flows)
             histogram[union_process] = h_in * xsec / inp["collection"][0]["stats"].load()["sum_mc_weight"]
 
         if not histogram:
@@ -207,15 +223,18 @@ class FixedWPEfficiencyBase(
 
         axes = OrderedDict(zip(cum_histogram.axes.name, cum_histogram.axes))
         axes[f"{self.tag_name}_wp"] = hist.axis.StrCategory(self.wps, name=f"{self.tag_name}_wp", label="working point")
-
-        efficiency_hist = hist.Hist(*axes.values(), name=sum_histogram.name, storage=hist.storage.Weight())
+        efficiency_hist = hist.Hist(
+            *axes.values(),
+            name=sum_histogram.name,
+            storage=hist.storage.Weight(),
+        )
         efficiency_hist.view()[:] = cum_histogram[{f"{self.tag_name}_wp": slice(1, None)}].view()
         efficiency_hist = efficiency_hist / incl
 
-        # save as correctionlib file
+        # save as correctionlib file (unfortunately not possible to specify the flow for each variable separately)
         efficiency_hist.label = "out"
         description = f"{self.tag_name} efficiencies of jets for {efficiency_hist.name} algorithm"
-        clibcorr = correctionlib.convert.from_histogram(efficiency_hist)
+        clibcorr = correctionlib.convert.from_histogram(efficiency_hist, flow="clamp")
         clibcorr.description = description
 
         cset = correctionlib.schemav2.CorrectionSet(schema_version=2, description=description, corrections=[clibcorr])
@@ -257,21 +276,24 @@ class FixedWPEfficiencyBase(
             if control_plot_var in self.variables:
                 variable_inst = self.config_inst.get_variable(control_plot_var)
             elif control_plot_var == self.flav_name:
+                n_bins = len(axis.edges)
                 variable_inst = od.Variable(
-                    name=axis.name, binning=axis.centers.edges, discrete_x=True,
-                    x_labels=[axis.bin(i) for i in range(axis.edges)],
+                    name=axis.name, binning=(n_bins, -0.5, n_bins - 0.5), discrete_x=True,
+                    x_labels=[axis.bin(i) for i in range(n_bins)],
                 )
             else:
-                variable_inst = od.Variable(name=f"{self.tag_name} score", binning=axis.centers.edges)
+                variable_inst = od.Variable(name=f"{self.tag_name} score", binning=axis.edges.tolist())
 
             fig, _ = self.call_plot_func(
-                self.plot_function,
+                self.control_plot_function,
                 hists={process_inst: h.project(control_plot_var) for process_inst, h in histogram.items()},
                 config_inst=self.config_inst,
                 category_inst=od.Category(name=f"baseline, excluding\n{self.tag_name} selection"),
                 variable_insts=[variable_inst.copy_shallow()],
                 **self.get_control_plot_parameter(),
             )
+            for p in self.output()["controls"][control_plot_var]:
+                p.dump(fig, formatter="mpl")
 
 
 
