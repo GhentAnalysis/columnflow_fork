@@ -53,7 +53,7 @@ lepton_mva_fixed_wp_weights = fixed_wp_weights.derive(
             flat_input.pt,
             flat_input.eta,
         ],
-    )
+    ),
 )
 
 lepton_mva_efficiency_hists = fixed_wp_efficiency_hists.derive(
@@ -68,11 +68,10 @@ pass_single_producers = [
     ) for producer_inst in [
         lepton_mva_id,
         lepton_mva_fixed_wp_weights,
-        lepton_mva_efficiency_hists
+        lepton_mva_efficiency_hists,
     ]
 ]
 
 lepton_mva_id_pass_single = pass_single_producers[0]
 lepton_mva_fixed_wp_weights_pass_single = pass_single_producers[1]
 lepton_mva_efficiency_hists_pass_single = pass_single_producers[2]
-

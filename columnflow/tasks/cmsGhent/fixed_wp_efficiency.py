@@ -11,7 +11,7 @@ from columnflow.tasks.framework.mixins import (
     DatasetsProcessesMixin, SelectorMixin,
 )
 from columnflow.tasks.framework.plotting import (
-    PlotBase, PlotBase2D, PlotBase1D
+    PlotBase, PlotBase2D, PlotBase1D,
 )
 
 from columnflow.tasks.selection import MergeSelectionStats
@@ -19,7 +19,6 @@ from columnflow.tasks.selection import MergeSelectionStats
 from columnflow.tasks.framework.remote import RemoteWorkflow
 from columnflow.util import dev_sandbox, dict_add_strict
 from columnflow.types import Any
-
 
 
 class FixedWPEfficiencyBase(
@@ -153,7 +152,7 @@ class FixedWPEfficiencyBase(
                     f"{self.tag_name}_wp",
                     *self.variables,
                 ]
-            }
+            },
         }
 
     def get_plot_parameters(self):
@@ -168,7 +167,6 @@ class FixedWPEfficiencyBase(
             params[pp] = getattr(self, f"control_{pp}")
         params["yscale"] = None if self.control_yscale == law.NO_STR else self.control_yscale
         return params
-
 
     @law.decorator.log
     def run(self):
@@ -294,8 +292,6 @@ class FixedWPEfficiencyBase(
             )
             for p in self.output()["controls"][control_plot_var]:
                 p.dump(fig, formatter="mpl")
-
-
 
 
 class BTagEfficiency(FixedWPEfficiencyBase):

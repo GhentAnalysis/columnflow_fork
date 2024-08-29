@@ -3,7 +3,6 @@ from __future__ import annotations
 import law
 import order as od
 from typing import Iterable, Sequence, Callable
-import time
 from collections import OrderedDict
 import dataclasses
 
@@ -86,7 +85,7 @@ def init_fixed_wp(self: Producer | WeightProducer, add_weight_inputs_vars=True):
                 f"no default {self.tag_name} efficiency variables defined in config",
                 f"Config does not have an attribute x.default_{self.tag_name}_variables that provides default \
                 variables in which to bin {self.tag_name} efficiency.\n \
-                The variables '{' & '.join(self.default_eff_variables)}' are used if defined in the config.",)
+                The variables '{' & '.join(self.default_eff_variables)}' are used if defined in the config.")
         self.variables = self.config_inst.x(f"default_{self.tag_name}_variables", self.default_eff_variables)
         self.variable_insts = list(map(self.config_inst.get_variable, self.variables))
         self.uses.update({
@@ -131,8 +130,9 @@ def fixed_wp_tag(
     **kwargs,
 ) -> ak.Array:
     if self.wp_config is None:
-        logger.warning_once(self.cls_name + " no config",
-            f"no {self.cls_name} config defined. Not doing anything"
+        logger.warning_once(
+            self.cls_name + " no config",
+            f"no {self.cls_name} config defined. Not doing anything",
         )
         return events
     if working_points is None:
@@ -178,8 +178,9 @@ def fixed_wp_weights(
     **kwargs,
 ) -> ak.Array:
     if self.wp_config is None:
-        logger.warning_once(self.cls_name + " no config",
-            f"no {self.cls_name} config defined. Not doing anything"
+        logger.warning_once(
+            self.cls_name + " no config",
+            f"no {self.cls_name} config defined. Not doing anything",
         )
         return events
 
@@ -278,7 +279,7 @@ def fixed_wp_weights(
                         events = add_weight(obj, variation, wps)
 
         # nominal weights:
-        weight_name = self.weight_name + (f'_{wps}' if self.single_wp else '')
+        weight_name = self.weight_name + (f"_{wps}" if self.single_wp else "")
         nominal = np.prod([events[f"{weight_name}_{fg}"] for fg in self.objects], axis=0)
         events = set_ak_column(events, self.weight_name, nominal)
 
@@ -404,12 +405,13 @@ def fixed_wp_efficiency_hists(
     **kwargs,
 ) -> ak.Array:
     if hists is None:
-        logger.warning_once(self.cls_name + " no config",
-            f"no {self.cls_name} config defined. Not doing anything"
-        )
+        logger.warning_once(self.cls_name + " did not get any histograms")
         return events
     if self.wp_config is None:
-        logger.warning_once(self.cls_name + " did not get any histograms")
+        logger.warning_once(
+            self.cls_name + " no config",
+            f"no {self.cls_name} config defined. Not doing anything",
+        )
         return events
 
     no_tag_selection = self.get_no_tag_selection(results)
@@ -419,7 +421,7 @@ def fixed_wp_efficiency_hists(
     if self.object_mapping is None:
         object_data = ak.concatenate(
             [events[obj][results.objects[obj][obj]] for obj in self.objects],
-            axis=1
+            axis=1,
         )
     else:
         object_data = events[self.object][results.objects[self.object][self.object]]
@@ -490,4 +492,3 @@ def fixed_wp_efficiency_hists_setup(
         binning=[self.discriminator_range[0], *self.wp_values.values(), self.discriminator_range[1]],
         x_labels=["U", *self.wps],
     ))
-

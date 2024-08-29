@@ -50,7 +50,7 @@ btag_fixed_wp_weights = fixed_wp_weights.derive(
             abs(flat_input.eta),
             flat_input.pt,
         ],
-    )
+    ),
 )
 
 btag_efficiency_hists = fixed_wp_efficiency_hists.derive(
