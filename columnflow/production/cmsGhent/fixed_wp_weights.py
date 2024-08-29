@@ -235,11 +235,11 @@ def fixed_wp_weights(
                 if working_point is None:
                     return (none_value,) * 2
                 sf_inputs = self.sf_inputs(syst_variation, working_point, flat_wp_data)
-                sf = sf_corrector(*sf_inputs)
+                sf = sf_corrector.evaluate(*sf_inputs)
                 if self.pass_only:
                     return sf, none_value
                 eff_inputs = self.eff_inputs(working_point, flat_wp_data)
-                eff = self.eff_corrector(*eff_inputs)
+                eff = self.eff_corrector.evaluate(*eff_inputs)
                 return sf, eff
 
             sf_this_wp, eff_this_wp = sf_eff_wp(wp, none_value=1.)
@@ -336,7 +336,6 @@ def fixed_wp_weights_setup(
     all_correction_sets = setup_fixed_wp(self, reqs)
 
     self.correctors = {obj: all_correction_sets[c_set] for obj, c_set in zip(self.objects, self.correction_sets)}
-
     if self.pass_only:
         return
     # unpack the b-tagging efficiency
