@@ -126,7 +126,7 @@ def req_fixed_wp(self: Producer | WeightProducer, reqs: dict):
 def fixed_wp_tag(
     self: Producer,
     events: ak.Array,
-    working_points: Iterable[str],
+    working_points: Iterable[str] = None,
     object_mask: ak.Array[bool] = None,
     **kwargs,
 ) -> ak.Array:
@@ -135,6 +135,8 @@ def fixed_wp_tag(
             f"no {self.cls_name} config defined. Not doing anything"
         )
         return events
+    if working_points is None:
+        working_points = self.wps
     for wp in working_points:
         for obj in self.nano_objects:
             tag = events[obj][self.discriminator] >= self.wp_values[wp]
@@ -171,7 +173,7 @@ def fixed_wp_tag_init(self: Producer):
 def fixed_wp_weights(
     self: Producer,
     events: ak.Array,
-    working_points: Iterable[str] | str,
+    working_points: Iterable[str] | str = None,
     object_mask: ak.Array[bool] | dict[ak.Array[bool]] = None,
     **kwargs,
 ) -> ak.Array:
@@ -180,9 +182,11 @@ def fixed_wp_weights(
             f"no {self.cls_name} config defined. Not doing anything"
         )
         return events
-    working_points = sorted(law.util.make_list(working_points), key=lambda x: self.wps.index(x))
 
-
+    if working_points is None:
+        working_points = self.wps
+    else:
+        working_points = sorted(law.util.make_list(working_points), key=lambda x: self.wps.index(x))
 
     if self.object_mapping is not None or len(self.objects) == 1:
         assert self.object in events.fields, f"cannot find {self.object} in events array"
