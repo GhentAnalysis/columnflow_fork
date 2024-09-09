@@ -61,17 +61,8 @@ lepton_mva_efficiency_hists = fixed_wp_efficiency_hists.derive(
     cls_dict=dict(wp_config=LeptonMVAConfig),
 )
 
-pass_single_producers = [
-    producer_inst.derive(
-        producer_inst.cls_name + "_pass_single",
-        cls_dict=dict(wp_config=LeptonMVAConfig.copy(single_wp=True, pass_only=True)),
-    ) for producer_inst in [
-        lepton_mva_id,
-        lepton_mva_fixed_wp_weights,
-        lepton_mva_efficiency_hists,
-    ]
-]
 
-lepton_mva_id_pass_single = pass_single_producers[0]
-lepton_mva_fixed_wp_weights_pass_single = pass_single_producers[1]
-lepton_mva_efficiency_hists_pass_single = pass_single_producers[2]
+lepton_mva_fixed_wp_weights_pass_single = lepton_mva_fixed_wp_weights.derive(
+    "lepton_mva_fixed_wp_weights_pass_single",
+    cls_dict=dict(wp_config=LeptonMVAConfig.copy(single_wp=True, pass_only=True)),
+)
