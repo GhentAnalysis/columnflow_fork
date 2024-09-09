@@ -57,3 +57,9 @@ btag_efficiency_hists = fixed_wp_efficiency_hists.derive(
     "btag_efficiency_hists",
     cls_dict=dict(wp_config=BTagConfigRun2),
 )
+
+
+btag_fixed_wp_weights_single = btag_fixed_wp_weights.derive(
+    "btag_fixed_wp_weights_single",
+    cls_dict=dict(wp_config=BTagConfigRun2.copy(single_wp=True)),
+)
