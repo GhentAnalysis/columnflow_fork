@@ -215,7 +215,7 @@ class FixedWPEfficiencyBase(
             for variable_inst in variable_insts:
                 v_idx = h_in.axes.name.index(variable_inst.name)
                 for mi, mj in variable_inst.x("merge_bins", []):
-                    merged_bins = h_in[{variable_inst.name:slice(mi, mj+1, sum)}]
+                    merged_bins = h_in[{variable_inst.name: slice(mi, mj + 1, sum)}]
                     new_arr = np.moveaxis(h_in.view(), v_idx, 0)
                     new_arr[mi:mj + 1] = merged_bins.view()[np.newaxis]
                     h_in.view()[:] = np.moveaxis(new_arr, 0, v_idx)
@@ -275,8 +275,6 @@ class FixedWPEfficiencyBase(
             err_hists.append(hist.Hist(*axes.values(), storage=hist.storage.Weight()))
             err_hists[-1].values()[:] = err - ratio
             err_hists[-1].variances()[:] = 1
-
-
         # plot efficiency for each hadronFlavour and wp
         for i, (flav, wp) in enumerate(product(self.flavours, self.wps)):
 
