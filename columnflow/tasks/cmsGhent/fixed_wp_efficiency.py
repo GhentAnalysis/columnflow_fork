@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import law
 import order as od
+import luigi
 from collections import OrderedDict
 from itertools import product
 
@@ -39,6 +40,12 @@ class FixedWPEfficiencyBase(
     control_plot_function = PlotBase.plot_function.copy(
         default="columnflow.plotting.plot_functions_1d.plot_variable_per_process",
         add_default_to_description=True,
+    )
+
+    make_plots = luigi.BoolParameter(
+        default=False,
+        significant=False,
+        description="when True, make plots of efficiencies",
     )
 
     control_skip_ratio = PlotBase1D.skip_ratio.copy()
@@ -132,19 +139,24 @@ class FixedWPEfficiencyBase(
         return parts
 
     def output(self):
-        return {
+        out = {
             "stats": self.target(".".join(
                 self.get_plot_names(f"{self.tag_name}_efficiency")[0].split(".")[:-1],
             ) + ".json"),
-            "plots": [
+        }
+        if not self.make_plots:
+            return out
+        return out | {
+            "plots": {dr: [
                 [self.target(name)
                  for name in self.get_plot_names(
                     f"{self.tag_name}_eff__{flav}_{self.flav_name}"
-                    f"__wp_{wp}",
+                    f"__wp_{wp}" +
+                    (f"__err_{dr}" if dr != "central" else ""),
                 )]
                 for flav in self.flavours.values()
                 for wp in self.wps
-            ],
+            ] for dr in ["central", "down", "up"]},
             "controls": {
                 vr: [self.target(f"control_{name}") for name in self.get_plot_names(vr)]
                 for vr in [
@@ -176,6 +188,7 @@ class FixedWPEfficiencyBase(
         import correctionlib.convert
         from columnflow.plotting.cmsGhent.plot_util import cumulate
         from columnflow.plotting.plot_util import use_flow_bins
+        from statsmodels.stats.proportion import proportion_confint
 
         variable_insts = list(map(self.config_inst.get_variable, self.variables))
 
@@ -183,7 +196,7 @@ class FixedWPEfficiencyBase(
         histogram = {}
         for dataset, inp in self.input().items():
             dataset_inst = self.config_inst.get_dataset(dataset)
-            dt_process_insts: set[od.Process] = {process_inst for process_inst, _, _ in dataset_inst.walk_processes()}
+            dt_process_insts: set[od.Process] = {process_inst for process_inst in dataset_inst.processes}
             union_process_name = "_".join([process_inst.name for process_inst in dt_process_insts])
             if self.config_inst.has_process(union_process_name):
                 union_process = self.config_inst.get_process(union_process_name)
@@ -200,12 +213,20 @@ class FixedWPEfficiencyBase(
                 )
             h_in = inp["collection"][0]["hists"].load(formatter="pickle")[f"{self.tag_name}_efficiencies"]
             for variable_inst in variable_insts:
+                v_idx = h_in.axes.name.index(variable_inst.name)
+                for mi, mj in variable_inst.x("merge_bins", []):
+                    merged_bins = h_in[{variable_inst.name:slice(mi, mj+1, sum)}]
+                    new_arr = np.moveaxis(h_in.view(), v_idx, 0)
+                    new_arr[mi:mj + 1] = merged_bins.view()[np.newaxis]
+                    h_in.view()[:] = np.moveaxis(new_arr, 0, v_idx)
+
                 if any(flows := [
                     getattr(variable_inst, f + "flow", variable_inst.x(f + "flow", False))
                     for f in ["under", "over"]
                 ]):
                     h_in = use_flow_bins(h_in, variable_inst.name, *flows)
-            histogram[union_process] = h_in * xsec / inp["collection"][0]["stats"].load()["sum_mc_weight"]
+            norm = inp["collection"][0]["stats"].load()["sum_mc_weight"]
+            histogram[union_process] = h_in * xsec / norm * self.config_inst.x.luminosity.nominal
 
         if not histogram:
             raise Exception(
@@ -217,7 +238,7 @@ class FixedWPEfficiencyBase(
         # combine tagged and inclusive histograms to an efficiency histogram
         sum_histogram = sum(histogram.values())
         cum_histogram = cumulate(sum_histogram, direction="above", axis=f"{self.tag_name}_wp")
-        incl = cum_histogram[{f"{self.tag_name}_wp": slice(0, 1)}].values()
+        incl = cum_histogram[{f"{self.tag_name}_wp": slice(0, 1)}]
 
         axes = OrderedDict(zip(cum_histogram.axes.name, cum_histogram.axes))
         axes[f"{self.tag_name}_wp"] = hist.axis.StrCategory(self.wps, name=f"{self.tag_name}_wp", label="working point")
@@ -226,8 +247,9 @@ class FixedWPEfficiencyBase(
             name=sum_histogram.name,
             storage=hist.storage.Weight(),
         )
+
         efficiency_hist.view()[:] = cum_histogram[{f"{self.tag_name}_wp": slice(1, None)}].view()
-        efficiency_hist = efficiency_hist / incl
+        efficiency_hist = efficiency_hist / incl.values()
 
         # save as correctionlib file (unfortunately not possible to specify the flow for each variable separately)
         efficiency_hist.label = "out"
@@ -237,37 +259,56 @@ class FixedWPEfficiencyBase(
 
         cset = correctionlib.schemav2.CorrectionSet(schema_version=2, description=description, corrections=[clibcorr])
         self.output()["stats"].dump(cset.dict(exclude_unset=True), indent=4, formatter="json")
+
+        if not self.make_plots:
+            return
+
+        selected_counts = cum_histogram[{f"{self.tag_name}_wp": slice(1, None)}]
+        eff_sample_size_corr = incl.values() / incl.variances()
+        eff_selected = selected_counts.values() * eff_sample_size_corr
+        eff_incl = incl.values() * eff_sample_size_corr
+
+        ratio = eff_selected / eff_incl
+        error = proportion_confint(eff_selected, eff_incl, alpha=0.35, method="beta")
+        err_hists = []
+        for err in error:
+            err_hists.append(hist.Hist(*axes.values(), storage=hist.storage.Weight()))
+            err_hists[-1].values()[:] = err - ratio
+            err_hists[-1].variances()[:] = 1
+
+
         # plot efficiency for each hadronFlavour and wp
         for i, (flav, wp) in enumerate(product(self.flavours, self.wps)):
 
-            # create a dummy histogram dict for plotting with the first process
-            hist_dict = OrderedDict((
-                (self.config_inst.get_process(self.processes[-1]),
-                 efficiency_hist[{
-                     self.flav_name: hist.loc(flav),
-                     f"{self.tag_name}_wp": wp,
-                 }]),),
-            )
+            for name, h in [("central", efficiency_hist), *zip(["down", "up"], err_hists)]:
+                # create a dummy histogram dict for plotting with the first process
+                hist_dict = OrderedDict((
+                    (self.config_inst.get_process(self.processes[-1]),
+                     h[{
+                         self.flav_name: hist.loc(flav),
+                         f"{self.tag_name}_wp": wp,
+                     }]),),
+                )
 
-            # create a dummy category for plotting
-            cat = od.Category(name=self.flav_name, label=self.flavours[flav])
+                # create a dummy category for plotting
+                cat = od.Category(name=self.flav_name, label=self.flavours[flav])
 
-            # custom styling:
-            label_values = np.around(
-                efficiency_hist[{self.flav_name: hist.loc(flav)}].values() * 100, decimals=1)
-            style_config = {"plot2d_cfg": {"cmap": "PiYG", "labels": label_values}}
-            # call the plot function
-            fig, _ = self.call_plot_func(
-                self.plot_function,
-                hists=hist_dict,
-                config_inst=self.config_inst,
-                category_inst=cat.copy_shallow(),
-                variable_insts=[var_inst.copy_shallow() for var_inst in variable_insts],
-                style_config=style_config,
-                **self.get_plot_parameters(),
-            )
-            for p in self.output()["plots"][i]:
-                p.dump(fig, formatter="mpl")
+                # custom styling:
+                label_values = np.around(
+                    h[{self.flav_name: hist.loc(flav)}].values() * 100, decimals=1)
+                style_config = {"plot2d_cfg": {"cmap": "PiYG", "labels": label_values}}
+                # call the plot function
+                fig, _ = self.call_plot_func(
+                    self.plot_function,
+                    hists=hist_dict,
+                    config_inst=self.config_inst,
+                    category_inst=cat.copy_shallow(),
+                    variable_insts=[var_inst.copy_shallow() for var_inst in variable_insts],
+                    style_config=style_config,
+                    **self.get_plot_parameters(),
+                )
+                for p in self.output()["plots"][name][i]:
+                    p.dump(fig, formatter="mpl")
 
         for control_plot_var in [self.flav_name, f"{self.tag_name}_wp", *self.variables]:
             axis = sum_histogram.axes[control_plot_var]
