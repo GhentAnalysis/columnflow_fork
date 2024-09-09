@@ -75,7 +75,6 @@ def init_fixed_wp(self: Producer | WeightProducer, add_weight_inputs_vars=True):
         return
     for key, value in dataclasses.asdict(self.wp_config).items():
         setattr(self, key, value)
-
     self.uses.update([f"{obj}.{self.discriminator}" for obj in self.nano_objects])
 
     if add_weight_inputs_vars:
@@ -253,7 +252,7 @@ def fixed_wp_weights(
             # enforce the correct shape and create the product over all objects per event
             weight = weight * ak.prod(layout_ak_array(weight_flat, shape_reference), axis=1, mask_identity=False)
 
-        column_name = f"{self.weight_name}{f'_{wps[0]}' if self.single_wp else ''}_{obj}"
+        column_name = f"{self.weight_name}{f'_{wps[-1]}' if self.single_wp else ''}_{obj}"
         if syst_variation != "central":
             column_name += "_" + syst_variation.replace(self.syst_uncorr_name, str(self.config_inst.x.year))
 
@@ -264,7 +263,6 @@ def fixed_wp_weights(
                 f"weight column events.{column_name} has an infinite, Nan or negative value and is set to 1. " +
                 f"Make sure the {self.tag_name} efficiency is defined and physical in all bins!",
             )
-
         return set_ak_column(events, column_name, weight, value_type=np.float32)
 
     # nominal weight and those of all method intrinsic uncertainties
