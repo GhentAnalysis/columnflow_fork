@@ -44,8 +44,8 @@ lepton_mva_fixed_wp_weights = fixed_wp_weights.derive(
         sf_inputs=lambda self, syst_variation, wp, flat_input: [
             syst_variation,
             wp,
-            flat_input.pt,
             flat_input.eta,
+            flat_input.pt,
         ],
         eff_inputs=lambda self, wp, flat_input: [
             self.flavour_transform(flat_input[self.flavour_input]),
