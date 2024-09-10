@@ -18,43 +18,15 @@ from columnflow.tasks.framework.plotting import (
 from columnflow.tasks.selection import MergeSelectionStats
 
 from columnflow.tasks.framework.remote import RemoteWorkflow
-from columnflow.util import dev_sandbox, dict_add_strict
+from columnflow.util import dev_sandbox, dict_add_strict, maybe_import
 from columnflow.types import Any
 
 
-class FixedWPEfficiencyBase(
-    VariablesMixin,
-    DatasetsProcessesMixin,
-    SelectorMixin,
-    CalibratorsMixin,
-    law.LocalWorkflow,
-    RemoteWorkflow,
-    PlotBase2D,
-):
+hist = maybe_import("hist")
 
-    plot_function = PlotBase.plot_function.copy(
-        default="columnflow.plotting.plot_functions_2d.plot_2d",
-        add_default_to_description=True,
-    )
 
-    control_plot_function = PlotBase.plot_function.copy(
-        default="columnflow.plotting.plot_functions_1d.plot_variable_per_process",
-        add_default_to_description=True,
-    )
-
-    make_plots = luigi.BoolParameter(
-        default=False,
-        significant=False,
-        description="when True, make plots of efficiencies",
-    )
-
-    control_skip_ratio = PlotBase1D.skip_ratio.copy()
-    control_density = PlotBase1D.density.copy()
-    control_yscale = PlotBase1D.yscale.copy()
-    control_shape_norm = PlotBase1D.shape_norm.copy()
-    control_hide_errors = PlotBase1D.hide_errors.copy()
-
-    sandbox = dev_sandbox(law.config.get("analysis", "default_columnar_sandbox"))
+class SelectionEfficiencyHistMixin(DatasetsProcessesMixin):
+    tag_name = "tag"
 
     # upstream requirements
     reqs = Requirements(
@@ -62,12 +34,11 @@ class FixedWPEfficiencyBase(
         MergeSelectionStats=MergeSelectionStats,
     )
 
-    exclude_index = True
-
-    tag_name = "btag"
-    flav_name = "hadronFlavour"
-    flavours = {0: "light", 4: "charm", 5: "bottom"}
-    wps = ["L", "M", "T"]
+    make_plots = luigi.BoolParameter(
+        default=False,
+        significant=False,
+        description="when True, make plots of efficiencies",
+    )
 
     @classmethod
     def resolve_param_values(
@@ -133,6 +104,107 @@ class FixedWPEfficiencyBase(
         # create a dummy branch map so that this task could be submitted as a job
         return {0: None}
 
+    def read_hist(self, variable_insts) -> dict[od.Process, hist.Hist]:
+        import numpy as np
+        from columnflow.plotting.plot_util import use_flow_bins
+
+        # histogram for the tagged and all jets (combine all datasets)
+        histogram = {}
+        for dataset, inp in self.input().items():
+            dataset_inst = self.config_inst.get_dataset(dataset)
+            dt_process_insts: set[od.Process] = {process_inst for process_inst, _, _ in dataset_inst.walk_processes()}
+            union_process_name = "_".join([process_inst.name for process_inst in dt_process_insts])
+            if self.config_inst.has_process(union_process_name):
+                union_process = self.config_inst.get_process(union_process_name)
+                xsec = union_process.get_xsec(self.config_inst.campaign.ecm).nominal
+            else:
+                union_process = od.Process(
+                    name="_".join([process_inst.name for process_inst in dt_process_insts]),
+                    label=", ".join([process_inst.label for process_inst in dt_process_insts]),
+                    id=-1,
+                )
+                xsec = sum(
+                    process_inst.get_xsec(self.config_inst.campaign.ecm).nominal
+                    for process_inst in dt_process_insts
+                )
+            h_in = inp["collection"][0]["hists"].load(formatter="pickle")[f"{self.tag_name}_efficiencies"]
+            for variable_inst in variable_insts:
+                v_idx = h_in.axes.name.index(variable_inst.name)
+                for mi, mj in variable_inst.x("merge_bins", []):
+                    merged_bins = h_in[{variable_inst.name: slice(mi, mj + 1, sum)}]
+                    new_arr = np.moveaxis(h_in.view(), v_idx, 0)
+                    new_arr[mi:mj + 1] = merged_bins.view()[np.newaxis]
+                    h_in.view()[:] = np.moveaxis(new_arr, 0, v_idx)
+
+                if any(flows := [
+                    getattr(variable_inst, f + "flow", variable_inst.x(f + "flow", False))
+                    for f in ["under", "over"]
+                ]):
+                    h_in = use_flow_bins(h_in, variable_inst.name, *flows)
+            norm = inp["collection"][0]["stats"].load()["sum_mc_weight"]
+            histogram[union_process] = h_in * xsec / norm * self.config_inst.x.luminosity.nominal
+
+        if not histogram:
+            raise Exception(
+                "no histograms found to plot; possible reasons:\n" +
+                "  - requested variable requires columns that were missing during histogramming\n" +
+                "  - selected --processes did not match any value on the process axis of the input histogram",
+            )
+
+        return histogram
+
+    def efficiency(self, selected_counts: hist.Hist, incl: hist.Hist):
+        from statsmodels.stats.proportion import proportion_confint
+        efficiency = selected_counts / incl.values()
+        eff_sample_size_corr = incl.values() / incl.variances()
+        eff_selected = selected_counts.values() * eff_sample_size_corr
+        eff_incl = incl.values() * eff_sample_size_corr
+        error = proportion_confint(eff_selected, eff_incl, alpha=0.35, method="beta")
+        err_hists = []
+        for err in error:
+            err_hists.append(hist.Hist(*selected_counts.axes, storage=hist.storage.Weight()))
+            err_hists[-1].values()[:] = err - efficiency.values()
+            err_hists[-1].variances()[:] = 1
+
+        return efficiency, err_hists
+
+
+
+class FixedWPEfficiencyBase(
+    SelectionEfficiencyHistMixin,
+    VariablesMixin,
+    SelectorMixin,
+    CalibratorsMixin,
+    law.LocalWorkflow,
+    RemoteWorkflow,
+    PlotBase2D,
+):
+
+    plot_function = PlotBase.plot_function.copy(
+        default="columnflow.plotting.plot_functions_2d.plot_2d",
+        add_default_to_description=True,
+    )
+
+    control_plot_function = PlotBase.plot_function.copy(
+        default="columnflow.plotting.plot_functions_1d.plot_variable_per_process",
+        add_default_to_description=True,
+    )
+
+    control_skip_ratio = PlotBase1D.skip_ratio.copy()
+    control_density = PlotBase1D.density.copy()
+    control_yscale = PlotBase1D.yscale.copy()
+    control_shape_norm = PlotBase1D.shape_norm.copy()
+    control_hide_errors = PlotBase1D.hide_errors.copy()
+
+    sandbox = dev_sandbox(law.config.get("analysis", "default_columnar_sandbox"))
+
+    exclude_index = True
+
+    tag_name = "btag"
+    flav_name = "hadronFlavour"
+    flavours = {0: "light", 4: "charm", 5: "bottom"}
+    wps = ["L", "M", "T"]
+
     def store_parts(self):
         parts = super().store_parts()
         parts.insert_before("version", "datasets", f"datasets_{self.datasets_repr}")
@@ -187,53 +259,12 @@ class FixedWPEfficiencyBase(
         import correctionlib
         import correctionlib.convert
         from columnflow.plotting.cmsGhent.plot_util import cumulate
-        from columnflow.plotting.plot_util import use_flow_bins
         from statsmodels.stats.proportion import proportion_confint
 
         variable_insts = list(map(self.config_inst.get_variable, self.variables))
 
         # histogram for the tagged and all jets (combine all datasets)
-        histogram = {}
-        for dataset, inp in self.input().items():
-            dataset_inst = self.config_inst.get_dataset(dataset)
-            dt_process_insts: set[od.Process] = {process_inst for process_inst in dataset_inst.processes}
-            union_process_name = "_".join([process_inst.name for process_inst in dt_process_insts])
-            if self.config_inst.has_process(union_process_name):
-                union_process = self.config_inst.get_process(union_process_name)
-                xsec = union_process.get_xsec(self.config_inst.campaign.ecm).nominal
-            else:
-                union_process = od.Process(
-                    name="_".join([process_inst.name for process_inst in dt_process_insts]),
-                    label=", ".join([process_inst.label for process_inst in dt_process_insts]),
-                    id=-1,
-                )
-                xsec = sum(
-                    process_inst.get_xsec(self.config_inst.campaign.ecm).nominal
-                    for process_inst in dt_process_insts
-                )
-            h_in = inp["collection"][0]["hists"].load(formatter="pickle")[f"{self.tag_name}_efficiencies"]
-            for variable_inst in variable_insts:
-                v_idx = h_in.axes.name.index(variable_inst.name)
-                for mi, mj in variable_inst.x("merge_bins", []):
-                    merged_bins = h_in[{variable_inst.name: slice(mi, mj + 1, sum)}]
-                    new_arr = np.moveaxis(h_in.view(), v_idx, 0)
-                    new_arr[mi:mj + 1] = merged_bins.view()[np.newaxis]
-                    h_in.view()[:] = np.moveaxis(new_arr, 0, v_idx)
-
-                if any(flows := [
-                    getattr(variable_inst, f + "flow", variable_inst.x(f + "flow", False))
-                    for f in ["under", "over"]
-                ]):
-                    h_in = use_flow_bins(h_in, variable_inst.name, *flows)
-            norm = inp["collection"][0]["stats"].load()["sum_mc_weight"]
-            histogram[union_process] = h_in * xsec / norm * self.config_inst.x.luminosity.nominal
-
-        if not histogram:
-            raise Exception(
-                "no histograms found to plot; possible reasons:\n" +
-                "  - requested variable requires columns that were missing during histogramming\n" +
-                "  - selected --processes did not match any value on the process axis of the input histogram",
-            )
+        histogram = self.read_hist(variable_insts)
 
         # combine tagged and inclusive histograms to an efficiency histogram
         sum_histogram = sum(histogram.values())
@@ -242,14 +273,14 @@ class FixedWPEfficiencyBase(
 
         axes = OrderedDict(zip(cum_histogram.axes.name, cum_histogram.axes))
         axes[f"{self.tag_name}_wp"] = hist.axis.StrCategory(self.wps, name=f"{self.tag_name}_wp", label="working point")
-        efficiency_hist = hist.Hist(
+        selected_counts = hist.Hist(
             *axes.values(),
             name=sum_histogram.name,
             storage=hist.storage.Weight(),
         )
+        selected_counts.view()[:] = cum_histogram[{f"{self.tag_name}_wp": slice(1, None)}].view()
 
-        efficiency_hist.view()[:] = cum_histogram[{f"{self.tag_name}_wp": slice(1, None)}].view()
-        efficiency_hist = efficiency_hist / incl.values()
+        efficiency_hist, err_hists = self.efficiency(selected_counts, incl)
 
         # save as correctionlib file (unfortunately not possible to specify the flow for each variable separately)
         efficiency_hist.label = "out"
@@ -263,18 +294,6 @@ class FixedWPEfficiencyBase(
         if not self.make_plots:
             return
 
-        selected_counts = cum_histogram[{f"{self.tag_name}_wp": slice(1, None)}]
-        eff_sample_size_corr = incl.values() / incl.variances()
-        eff_selected = selected_counts.values() * eff_sample_size_corr
-        eff_incl = incl.values() * eff_sample_size_corr
-
-        ratio = eff_selected / eff_incl
-        error = proportion_confint(eff_selected, eff_incl, alpha=0.35, method="beta")
-        err_hists = []
-        for err in error:
-            err_hists.append(hist.Hist(*axes.values(), storage=hist.storage.Weight()))
-            err_hists[-1].values()[:] = err - ratio
-            err_hists[-1].variances()[:] = 1
         # plot efficiency for each hadronFlavour and wp
         for i, (flav, wp) in enumerate(product(self.flavours, self.wps)):
 
