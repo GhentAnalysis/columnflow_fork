@@ -104,19 +104,23 @@ class SelectionEfficiencyHistMixin(DatasetsProcessesMixin):
         # create a dummy branch map so that this task could be submitted as a job
         return {0: None}
 
-    def read_hist(self, variable_insts) -> dict[od.Process, hist.Hist]:
+    def read_hist(self, variable_insts, name=None) -> dict[od.Process, hist.Hist]:
         import numpy as np
         from columnflow.plotting.plot_util import use_flow_bins
 
+        if name is None:
+            name = f"{self.tag_name}_efficiencies"
         # histogram for the tagged and all jets (combine all datasets)
         histogram = {}
         for dataset, inp in self.input().items():
             dataset_inst = self.config_inst.get_dataset(dataset)
-            dt_process_insts: set[od.Process] = {process_inst for process_inst, _, _ in dataset_inst.walk_processes()}
+            dt_process_insts: set[od.Process] = {process_inst for process_inst in dataset_inst.processes}
             union_process_name = "_".join([process_inst.name for process_inst in dt_process_insts])
+            xsec = 1
             if self.config_inst.has_process(union_process_name):
                 union_process = self.config_inst.get_process(union_process_name)
-                xsec = union_process.get_xsec(self.config_inst.campaign.ecm).nominal
+                if union_process.is_mc:
+                    xsec = union_process.get_xsec(self.config_inst.campaign.ecm).nominal
             else:
                 union_process = od.Process(
                     name="_".join([process_inst.name for process_inst in dt_process_insts]),
@@ -127,7 +131,7 @@ class SelectionEfficiencyHistMixin(DatasetsProcessesMixin):
                     process_inst.get_xsec(self.config_inst.campaign.ecm).nominal
                     for process_inst in dt_process_insts
                 )
-            h_in = inp["collection"][0]["hists"].load(formatter="pickle")[f"{self.tag_name}_efficiencies"]
+            h_in = inp["collection"][0]["hists"].load(formatter="pickle")[name]
             for variable_inst in variable_insts:
                 v_idx = h_in.axes.name.index(variable_inst.name)
                 for mi, mj in variable_inst.x("merge_bins", []):
@@ -141,8 +145,10 @@ class SelectionEfficiencyHistMixin(DatasetsProcessesMixin):
                     for f in ["under", "over"]
                 ]):
                     h_in = use_flow_bins(h_in, variable_inst.name, *flows)
-            norm = inp["collection"][0]["stats"].load()["sum_mc_weight"]
-            histogram[union_process] = h_in * xsec / norm * self.config_inst.x.luminosity.nominal
+            if union_process.is_mc:
+                norm = inp["collection"][0]["stats"].load()["sum_mc_weight"]
+                h_in = h_in * xsec / norm * self.config_inst.x.luminosity.nominal
+            histogram[union_process] = histogram.get(union_process, 0) + h_in
 
         if not histogram:
             raise Exception(
@@ -167,7 +173,6 @@ class SelectionEfficiencyHistMixin(DatasetsProcessesMixin):
             err_hists[-1].variances()[:] = 1
 
         return efficiency, err_hists
-
 
 
 class FixedWPEfficiencyBase(
@@ -259,7 +264,6 @@ class FixedWPEfficiencyBase(
         import correctionlib
         import correctionlib.convert
         from columnflow.plotting.cmsGhent.plot_util import cumulate
-        from statsmodels.stats.proportion import proportion_confint
 
         variable_insts = list(map(self.config_inst.get_variable, self.variables))
 
