@@ -104,6 +104,11 @@ class SelectionEfficiencyHistMixin(DatasetsProcessesMixin):
         # create a dummy branch map so that this task could be submitted as a job
         return {0: None}
 
+    def store_parts(self):
+        parts = super().store_parts()
+        parts.insert_before("version", "datasets", f"datasets_{self.datasets_repr}")
+        return parts
+
     def read_hist(self, variable_insts, name=None) -> dict[od.Process, hist.Hist]:
         import numpy as np
         from columnflow.plotting.plot_util import use_flow_bins
@@ -209,11 +214,6 @@ class FixedWPEfficiencyBase(
     flav_name = "hadronFlavour"
     flavours = {0: "light", 4: "charm", 5: "bottom"}
     wps = ["L", "M", "T"]
-
-    def store_parts(self):
-        parts = super().store_parts()
-        parts.insert_before("version", "datasets", f"datasets_{self.datasets_repr}")
-        return parts
 
     def output(self):
         out = {
