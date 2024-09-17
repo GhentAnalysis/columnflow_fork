@@ -166,7 +166,7 @@ class SelectionEfficiencyHistMixin(DatasetsProcessesMixin):
             err_hists[-1].values()[:] = err - efficiency.values()
             err_hists[-1].variances()[:] = 1
 
-        return efficiency, err_hists
+        return efficiency, *err_hists
 
 
 
@@ -280,7 +280,7 @@ class FixedWPEfficiencyBase(
         )
         selected_counts.view()[:] = cum_histogram[{f"{self.tag_name}_wp": slice(1, None)}].view()
 
-        efficiency_hist, err_hists = self.efficiency(selected_counts, incl)
+        efficiency_hist, *err_hists = self.efficiency(selected_counts, incl)
 
         # save as correctionlib file (unfortunately not possible to specify the flow for each variable separately)
         efficiency_hist.label = "out"
