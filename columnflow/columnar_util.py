@@ -1566,6 +1566,17 @@ class ArrayFunction(Derivable):
         return cls.IOFlagged(cls, cls.IOFlag.PRODUCES)
 
     @classmethod
+    def call(cls, func: Callable[[Any, ...], Any]) -> None:
+        """
+        Decorator to wrap a function *func* that should be registered as :py:meth:`call_func`
+        which defines the main callable for processing chunks of data. The function should accept
+        arbitrary arguments and can return arbitrary objects.
+
+        The decorator does not return the wrapped function.
+        """
+        cls.call_func = func
+
+    @classmethod
     def init(cls, func: Callable[[], None]) -> None:
         """
         Decorator to wrap a function *func* that should be registered as :py:meth:`init_func`
@@ -1600,6 +1611,16 @@ class ArrayFunction(Derivable):
         **kwargs,
     ) -> None:
         super().__init__()
+
+        # NOTE: it might be necessary/advantageous to skip CSP init functions when no config_inst is present
+        # currently this is not needed since all tasks are either a *ConfigTask* or a
+        # *MultiConfigTask* (which sets config_inst = config_insts[0]). However, we should keep
+        # in mind that this might be problematic in the future.
+
+        # if not hasattr(self, "config_inst") and hasattr(self, "config_insts"):
+        #     self.config_inst = self.config_insts[0]
+        # elif not hasattr(self, "config_inst") and not hasattr(self, "config_insts"):
+        #     return
 
         # add class-level attributes as defaults for unset arguments (no_value)
         if call_func == law.no_value:

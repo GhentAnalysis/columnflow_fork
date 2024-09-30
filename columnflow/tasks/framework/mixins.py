@@ -15,8 +15,8 @@ import luigi
 import law
 import order as od
 
-from columnflow.types import Sequence, Any, Iterable, Union
-from columnflow.tasks.framework.base import AnalysisTask, ConfigTask, RESOLVE_DEFAULT
+from columnflow.types import Sequence, Any, Iterable
+from columnflow.tasks.framework.base import AnalysisTask, ConfigTask, MultiConfigTask, RESOLVE_DEFAULT
 from columnflow.tasks.framework.parameters import SettingsParameter
 from columnflow.calibration import Calibrator
 from columnflow.selection import Selector
@@ -33,7 +33,7 @@ ak = maybe_import("awkward")
 logger = law.logger.get_logger(__name__)
 
 
-class CalibratorMixin(ConfigTask):
+class CalibratorMixin(AnalysisTask):
     """
     Mixin to include a single :py:class:`~columnflow.calibration.Calibrator` into tasks.
 
@@ -44,11 +44,11 @@ class CalibratorMixin(ConfigTask):
     calibrator = luigi.Parameter(
         default=RESOLVE_DEFAULT,
         description="the name of the calibrator to be applied; default: value of the "
-        "'default_calibrator' config",
+        "'default_calibrator' analysis aux",
     )
     calibrator.__annotations__ = " ".join("""
         the name of the calibrator to be applied; default: value of the
-        'default_calibrator' config""".split())
+        'default_calibrator' analysis aux""".split())
 
     # decides whether the task itself runs the calibrator and implements its shifts
     register_calibrator_sandbox = False
@@ -102,13 +102,13 @@ class CalibratorMixin(ConfigTask):
         """
         params = super().resolve_param_values(params)
 
-        config_inst = params.get("config_inst")
-        if config_inst:
+        analysis_inst = params.get("analysis_inst")
+        if analysis_inst:
             # add the default calibrator when empty
             params["calibrator"] = cls.resolve_config_default(
                 params,
                 params.get("calibrator"),
-                container=config_inst,
+                container=analysis_inst,
                 default_str="default_calibrator",
                 multiple=False,
             )
@@ -254,7 +254,7 @@ class CalibratorMixin(ConfigTask):
         return keys
 
 
-class CalibratorsMixin(ConfigTask):
+class CalibratorsMixin(AnalysisTask):
     """
     Mixin to include multiple :py:class:`~columnflow.calibration.Calibrator` instances into tasks.
 
@@ -266,7 +266,7 @@ class CalibratorsMixin(ConfigTask):
     calibrators = law.CSVParameter(
         default=(RESOLVE_DEFAULT,),
         description="comma-separated names of calibrators to be applied; default: value of the "
-        "'default_calibrator' config",
+        "'default_calibrator' analysis aux",
         brace_expand=True,
         parse_empty=True,
     )
@@ -312,9 +312,9 @@ class CalibratorsMixin(ConfigTask):
         calibrator groups.
 
         Check the values in *params* against the default value ``"default_calibrator"``
-        and possible group definitions ``"calibrator_groups"`` in the current config inst.
+        and possible group definitions ``"calibrator_groups"`` in the current analysis inst.
         For more information, see
-        :py:meth:`~columnflow.tasks.framework.base.ConfigTask.resolve_config_default_and_groups`.
+        :py:meth:`~columnflow.tasks.framework.base.AnalysisTask.resolve_config_default_and_groups`.
 
         :param params: Parameter values to resolve
         :return: Dictionary of parameters that contains the list requested
@@ -324,12 +324,12 @@ class CalibratorsMixin(ConfigTask):
         """
         params = super().resolve_param_values(params)
 
-        config_inst = params.get("config_inst")
-        if config_inst:
+        analysis_inst = params.get("analysis_inst")
+        if analysis_inst:
             params["calibrators"] = cls.resolve_config_default_and_groups(
                 params,
                 params.get("calibrators"),
-                container=config_inst,
+                container=analysis_inst,
                 default_str="default_calibrator",
                 groups_str="calibrator_groups",
             )
@@ -460,7 +460,7 @@ class CalibratorsMixin(ConfigTask):
         return columns
 
 
-class SelectorMixin(ConfigTask):
+class SelectorMixin(AnalysisTask):
     """
     Mixin to include a single :py:class:`~columnflow.selection.Selector`
     instances into tasks.
@@ -472,7 +472,7 @@ class SelectorMixin(ConfigTask):
     selector = luigi.Parameter(
         default=RESOLVE_DEFAULT,
         description="the name of the selector to be applied; default: value of the "
-        "'default_selector' config",
+        "'default_selector' analysis aux",
     )
 
     # decides whether the task itself runs the selector and implements its shifts
@@ -501,6 +501,7 @@ class SelectorMixin(ConfigTask):
             raise RuntimeError(f"cannot use unexposed selector '{selector}' in {cls.__name__}")
 
         inst_dict = cls.get_selector_kwargs(**kwargs) if kwargs else None
+
         return selector_cls(inst_dict=inst_dict)
 
     @classmethod
@@ -521,12 +522,12 @@ class SelectorMixin(ConfigTask):
         params = super().resolve_param_values(params)
 
         # add the default selector when empty
-        config_inst = params.get("config_inst")
-        if config_inst:
+        analysis_inst = params.get("analysis_inst")
+        if analysis_inst:
             params["selector"] = cls.resolve_config_default(
                 params,
                 params.get("selector"),
-                container=config_inst,
+                container=analysis_inst,
                 default_str="default_selector",
                 multiple=False,
             )
@@ -642,7 +643,7 @@ class SelectorMixin(ConfigTask):
         parts.insert_before("version", "selector", f"sel__{self.selector_repr}")
         return parts
 
-    def find_keep_columns(self: ConfigTask, collection: ColumnCollection) -> set[Route]:
+    def find_keep_columns(self: AnalysisTask, collection: ColumnCollection) -> set[Route]:
         columns = super().find_keep_columns(collection)
 
         if collection == ColumnCollection.ALL_FROM_SELECTOR:
@@ -771,7 +772,7 @@ class SelectorStepsMixin(SelectorMixin):
         return parts
 
 
-class ProducerMixin(ConfigTask):
+class ProducerMixin(AnalysisTask):
     """
     Mixin to include a single :py:class:`~columnflow.production.Producer` into tasks.
 
@@ -783,7 +784,7 @@ class ProducerMixin(ConfigTask):
     producer = luigi.Parameter(
         default=RESOLVE_DEFAULT,
         description="the name of the producer to be applied; default: value of the "
-        "'default_producer' config",
+        "'default_producer' analysis aux",
     )
 
     # decides whether the task itself runs the producer and implements its shifts
@@ -818,6 +819,7 @@ class ProducerMixin(ConfigTask):
             raise RuntimeError(f"cannot use unexposed producer '{producer}' in {cls.__name__}")
 
         inst_dict = cls.get_producer_kwargs(**kwargs) if kwargs else None
+
         return producer_cls(inst_dict=inst_dict)
 
     @classmethod
@@ -826,7 +828,7 @@ class ProducerMixin(ConfigTask):
         Resolve parameter values *params* relevant for the
         :py:class:`ProducerMixin` and all classes it inherits from.
 
-        Loads the ``config_inst`` and loads the parameter ``"producer"``.
+        Loads the ``analysis_inst`` and loads the parameter ``"producer"``.
         In case the parameter is not found, defaults to ``"default_producer"``.
         Finally, this function adds the keyword ``"producer_inst"``, which
         contains the :py:class:`~columnflow.production.Producer` instance
@@ -840,12 +842,12 @@ class ProducerMixin(ConfigTask):
         params = super().resolve_param_values(params)
 
         # add the default producer when empty
-        config_inst = params.get("config_inst")
-        if config_inst:
+        analysis_inst = params.get("analysis_inst")
+        if analysis_inst:
             params["producer"] = cls.resolve_config_default(
                 params,
                 params.get("producer"),
-                container=config_inst,
+                container=analysis_inst,
                 default_str="default_producer",
                 multiple=False,
             )
@@ -997,7 +999,7 @@ class ProducerMixin(ConfigTask):
         return keys
 
 
-class ProducersMixin(ConfigTask):
+class ProducersMixin(AnalysisTask):
     """
     Mixin to include multiple :py:class:`~columnflow.production.Producer` instances into tasks.
 
@@ -1009,7 +1011,7 @@ class ProducersMixin(ConfigTask):
     producers = law.CSVParameter(
         default=(RESOLVE_DEFAULT,),
         description="comma-separated names of producers to be applied; default: value of the "
-        "'default_producer' config",
+        "'default_producer' analysis aux",
         brace_expand=True,
         parse_empty=True,
     )
@@ -1054,9 +1056,9 @@ class ProducersMixin(ConfigTask):
         producer groups.
 
         Check the values in *params* against the default value ``"default_producer"``
-        and possible group definitions ``"producer_groups"`` in the current config inst.
+        and possible group definitions ``"producer_groups"`` in the current analysis inst.
         For more information, see
-        :py:meth:`~columnflow.tasks.framework.base.ConfigTask.resolve_config_default_and_groups`.
+        :py:meth:`~columnflow.tasks.framework.base.AnalysisTask.resolve_config_default_and_groups`.
 
         :param params: Parameter values to resolve
         :return: Dictionary of parameters that contains the list requested
@@ -1066,12 +1068,12 @@ class ProducersMixin(ConfigTask):
         """
         params = super().resolve_param_values(params)
 
-        config_inst = params.get("config_inst")
-        if config_inst:
+        analysis_inst = params.get("analysis_inst")
+        if analysis_inst:
             params["producers"] = cls.resolve_config_default_and_groups(
                 params,
                 params.get("producers"),
-                container=config_inst,
+                container=analysis_inst,
                 default_str="default_producer",
                 groups_str="producer_groups",
             )
@@ -1303,13 +1305,18 @@ class MLModelMixinBase(AnalysisTask):
         )
 
 
-class MLModelTrainingMixin(MLModelMixinBase):
+class MLModelTrainingMixin(
+    MLModelMixinBase,
+    ProducersMixin,
+    SelectorMixin,
+    CalibratorsMixin,
+    MultiConfigTask,
+):
     """
     A mixin class for training machine learning models.
-
-    This class provides parameters for configuring the training of machine learning models.
     """
 
+<<<<<<< HEAD
     configs = law.CSVParameter(
         default=(),
         description="comma-separated names of analysis config to use; should only contain a single "
@@ -1534,20 +1541,23 @@ class MLModelTrainingMixin(MLModelMixinBase):
 
         return producers
 
+=======
+>>>>>>> upstream/feature/MultiConfigTask_v3
     @classmethod
     def resolve_param_values(cls, params: dict[str, Any]) -> dict[str, Any]:
         """
         Resolve the parameter values for the given parameters.
 
-        This method retrieves the parameters and resolves the ML model instance, configs,
-        calibrators, selectors, and producers. It also calls the model's setup hook.
+        This method retrieves the parameters and resolves the ML model instance and the configs.
+        It also calls the model's setup hook.
 
         :param params: A dictionary of parameters that may contain the analysis instance and ML model.
         :return: A dictionary containing the resolved parameters.
         :raises Exception: If the ML model instance received configs to define training configs,
             but did not define any.
         """
-        params = super().resolve_param_values(params)
+        # resolve MultiConfigTask parameters first to setup the config insts
+        params = MultiConfigTask.resolve_param_values(params)
 
         if "analysis_inst" in params and "ml_model" in params:
             analysis_inst = params["analysis_inst"]
@@ -1570,17 +1580,23 @@ class MLModelTrainingMixin(MLModelMixinBase):
                 )
             ml_model_inst._set_configs(params["configs"])
 
-            # resolve calibrators
-            params["calibrators"] = cls.resolve_calibrators(ml_model_inst, params)
-
-            # resolve selectors
-            params["selectors"] = cls.resolve_selectors(ml_model_inst, params)
-
-            # resolve producers
-            params["producers"] = cls.resolve_producers(ml_model_inst, params)
-
             # call the model's setup hook
             ml_model_inst._setup()
+
+        if "ml_model_inst" in params:
+            ml_model_inst = params["ml_model_inst"]
+
+            # resolve CSPs based on the MLModel
+            params["calibrators"] = law.util.make_tuple(
+                ml_model_inst.training_calibrators(analysis_inst, params["calibrators"]),
+            )
+            params["selector"] = ml_model_inst.training_selector(analysis_inst, params["selector"])
+            params["producers"] = law.util.make_tuple(
+                ml_model_inst.training_producers(analysis_inst, params["producers"]),
+            )
+
+        # as final step, resolve CSPs
+        params = super().resolve_param_values(params)
 
         return params
 
@@ -1598,51 +1614,11 @@ class MLModelTrainingMixin(MLModelMixinBase):
         """
         Generate a dictionary of store parts for the current instance.
 
-        This method extends the base method to include additional parts related to machine learning
-        model configurations, calibrators, selectors, producers (CSP), and the ML model instance itself.
-        If the list of either of the CSPs is empty, the corresponding part is set to ``"none"``,
-        otherwise, the first two elements of the list are joined with ``"__"``.
-        If the list of either of the CSPs contains more than two elements, the part is extended
-        with the number of elements and a hash of the remaining elements, which is
-        created with :py:meth:`law.util.create_hash`.
-        The parts are represented as strings and are used to create unique identifiers for the
-        instance's output.
+        This method extends the base method to include the ML model parameter.
 
         :return: An InsertableDict containing the store parts.
         """
         parts = super().store_parts()
-        # since MLTraining is no CalibratorsMixin, SelectorMixin, ProducerMixin, ConfigTask,
-        # all these parts are missing in the `store_parts`
-
-        configs_repr = "__".join(self.configs[:5])
-
-        if len(self.configs) > 5:
-            configs_repr += f"_{law.util.create_hash(self.configs[5:])}"
-
-        parts.insert_after("task_family", "configs", configs_repr)
-
-        for label, fct_names in [
-            ("calib", self.calibrators),
-            ("sel", tuple((sel,) for sel in self.selectors)),
-            ("prod", self.producers),
-        ]:
-            if not fct_names or not any(fct_names):
-                fct_names = ["none"]
-            elif len(set(fct_names)) == 1:
-                # when functions are the same per config, only use them once
-                fct_names = fct_names[0]
-                n_fct_per_config = str(len(fct_names))
-            else:
-                # when functions differ between configs, flatten
-                n_fct_per_config = "".join(str(len(x)) for x in fct_names)
-                fct_names = tuple(fct_name for fct_names_cfg in fct_names for fct_name in fct_names_cfg)
-
-            part = "__".join(fct_names[:2])
-
-            if len(fct_names) > 2:
-                part += f"_{n_fct_per_config}_{law.util.create_hash(fct_names[2:])}"
-
-            parts.insert_before("version", label, f"{label}__{part}")
 
         if self.ml_model_inst:
             parts.insert_before("version", "ml_model", f"ml__{self.ml_model_repr}")
@@ -1655,7 +1631,7 @@ class MLModelMixin(ConfigTask, MLModelMixinBase):
     ml_model = luigi.Parameter(
         default=RESOLVE_DEFAULT,
         description="the name of the ML model to be applied; default: value of the "
-        "'default_ml_model' config",
+        "'default_ml_model' analysis aux",
     )
 
     allow_empty_ml_model = True
@@ -1667,29 +1643,30 @@ class MLModelMixin(ConfigTask, MLModelMixinBase):
         params = super().resolve_param_values(params)
 
         # add the default ml model when empty
-        if "analysis_inst" in params and "config_inst" in params:
+        if "analysis_inst" in params:
             analysis_inst = params["analysis_inst"]
-            config_inst = params["config_inst"]
 
             params["ml_model"] = cls.resolve_config_default(
                 params,
                 params.get("ml_model"),
-                container=config_inst,
+                container=analysis_inst,
                 default_str="default_ml_model",
                 multiple=False,
             )
 
-            # initialize it once to trigger its set_config hook which might, in turn,
-            # add objects to the config itself
-            if params.get("ml_model") not in (None, law.NO_STR):
-                params["ml_model_inst"] = cls.get_ml_model_inst(
-                    params["ml_model"],
-                    analysis_inst,
-                    requested_configs=[config_inst],
-                    parameters=params["ml_model_settings"],
-                )
-            elif not cls.allow_empty_ml_model:
-                raise Exception(f"no ml_model configured for {cls.task_family}")
+            if "config_inst" in params:
+                config_inst = params["config_inst"]
+
+                # initialize it once to trigger its set_config hook which might, in turn,
+                # add objects to the config itself
+                if params.get("ml_model") not in (None, law.NO_STR):
+                    params["ml_model_inst"] = cls.get_ml_model_inst(
+                        params["ml_model"],
+                        analysis_inst,
+                        requested_configs=[config_inst],
+                    )
+                elif not cls.allow_empty_ml_model:
+                    raise Exception(f"no ml_model configured for {cls.task_family}")
 
         return params
 
@@ -1738,7 +1715,7 @@ class MLModelDataMixin(MLModelMixin):
         return parts
 
 
-class MLModelsMixin(ConfigTask):
+class MLModelsMixin(AnalysisTask):
 
     ml_models = law.CSVParameter(
         default=(RESOLVE_DEFAULT,),
