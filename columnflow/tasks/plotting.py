@@ -136,7 +136,6 @@ class PlotVariablesBase(
                         hists[process_inst] += h
                     else:
                         hists[process_inst] = h
-
             # there should be hists to plot
             if not hists:
                 raise Exception(

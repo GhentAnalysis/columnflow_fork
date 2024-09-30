@@ -4,12 +4,16 @@
 Column production methods related detecting truth processes.
 """
 
+import law
+
 from columnflow.production import Producer, producer
 from columnflow.util import maybe_import
 from columnflow.columnar_util import set_ak_column
 
 np = maybe_import("numpy")
 ak = maybe_import("awkward")
+
+logger = law.logger.get_logger(__name__)
 
 
 @producer(
@@ -23,10 +27,11 @@ def process_ids(self: Producer, events: ak.Array, **kwargs) -> ak.Array:
     """
     # trivial case
     if len(self.dataset_inst.processes) != 1:
-        raise NotImplementedError(
+        logger.warning(
             f"dataset {self.dataset_inst.name} has {len(self.dataset_inst.processes)} processes "
-            "assigned, which is not yet implemented",
+            f"assigned, the first process {self.dataset_inst.processes.get_first().id} is asigned",
         )
+
     process_id = self.dataset_inst.processes.get_first().id
 
     # store the column

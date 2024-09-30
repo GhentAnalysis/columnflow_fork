@@ -5,6 +5,7 @@ electron energy scale And smearing.
 """
 
 import functools
+import law
 
 from columnflow.types import Any
 from columnflow.calibration import Calibrator, calibrator
@@ -18,6 +19,8 @@ ak = maybe_import("awkward")
 correctionlib = maybe_import("correctionlib")
 
 set_ak_column_f32 = functools.partial(set_ak_column, value_type=np.float32)
+
+logger = law.logger.get_logger(__name__)
 
 
 def get_evaluators(
@@ -126,6 +129,11 @@ def electron_ss(
     events: ak.Array,
     **kwargs,
 ) -> ak.Array:
+
+    # before starting if no config is defined or no external files are available return the events
+    if (not hasattr(self.config_inst.x, "electron_ss")) | (not hasattr(self, "evaluators")):
+        return events
+
     """
     Performs the electron (photon) energy scale corrections on data & smearing + uncertainties on Monte Carlo
 
@@ -266,6 +274,10 @@ def electron_ss_requires(self: Calibrator, reqs: dict) -> None:
 
 @electron_ss.init
 def electron_ss_init(self: Calibrator) -> None:
+
+    if not hasattr(self.config_inst.x, "electron_ss"):
+        return
+
     electron_ss_cfg = self.get_electron_ss_cfg()
 
     # if Monte Carlo add uncertainty_sources to self.produces
@@ -298,6 +310,12 @@ def electron_ss_setup(self: Calibrator, reqs: dict, inputs: dict, reader_targets
     :param inputs: Additional inputs, currently not used.
     :param reader_targets: TODO: add documentation.
     """
+    if (not hasattr(self.config_inst.x, "electron_ss")) | (not hasattr(reqs["external_files"].files, "electron_ss")):
+        logger.warning(
+            "Either no electron_ss config is provided or the electron_ss scale factors are not provided in the external files. \
+            \nThe electron scaling and smearing is not applied!",
+        )
+        return
 
     electron_ss_cfg = self.get_electron_ss_cfg()
 

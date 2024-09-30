@@ -16,7 +16,7 @@ ak = maybe_import("awkward")
 
 @producer(
     uses={
-        "Electron.pt", "Electron.eta", "Electron.deltaEtaSC",
+        "Electron.pt", "Electron.eta", "Electron.deltaEtaSC", "Electron.phi",
     },
     produces={
         "electron_weight", "electron_weight_up", "electron_weight_down",
@@ -66,7 +66,7 @@ def electron_weights(
         events.Electron.deltaEtaSC[electron_mask]
     ), axis=1)
     pt = flat_np_view(events.Electron.pt[electron_mask], axis=1)
-
+    phi = flat_np_view(events.Electron.phi[electron_mask], axis=1)
     recoabove75_mask = (pt >= 75)
     reco20to75_mask = (pt < 75) & (pt >= 20)
     recobelow20_mask = (pt < 20)
@@ -85,8 +85,12 @@ def electron_weights(
 
         # reconstruction scale factor (split in pt bins) multiplied with id en iso scale factors
         for reco_mask, reco_name in ((recoabove75_mask, "RecoAbove75"), (reco20to75_mask, "Reco20to75"), (recobelow20_mask, "RecoBelow20")):
-            sf_flat[reco_mask] = sf_flat[reco_mask] * self.electron_sf_corrector(
-                self.year, syst, reco_name, sc_eta[reco_mask], pt[reco_mask])
+            if self.year == 2022:
+                sf_flat[reco_mask] = sf_flat[reco_mask] * self.electron_sf_corrector(
+                    self.year, syst, reco_name, sc_eta[reco_mask], pt[reco_mask])
+            else:
+                sf_flat[reco_mask] = sf_flat[reco_mask] * self.electron_sf_corrector(
+                    self.year, syst, reco_name, sc_eta[reco_mask], pt[reco_mask], phi[reco_mask])
 
         # add the correct layout to it
         sf = layout_ak_array(sf_flat, events.Electron.pt[electron_mask])
@@ -128,7 +132,7 @@ def electron_weights_setup(
     self.electron_sf_corrector = correction_set[corrector_name]
 
     # check versions
-    if self.electron_sf_corrector.version not in (2,):
+    if self.electron_sf_corrector.version not in (2, 3):
         raise Exception(
             f"unsuppprted electron sf corrector version {self.electron_sf_corrector.version}",
         )

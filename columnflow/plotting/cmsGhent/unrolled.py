@@ -245,7 +245,7 @@ def plot_unrolled(
             h = cfg["hist"]
             kw = cfg.get("kwargs", {})
             plot_methods[method](ax, h, **kw)
-            if not skip_ratio:
+            if not skip_ratio and "ratio_kwargs" in cfg:
                 # take ratio_method if the ratio plot requires a different plotting method
                 method = cfg.get("ratio_method", method)
                 rkw = cfg.get("ratio_kwargs", {})
