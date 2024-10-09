@@ -14,6 +14,7 @@ from collections import OrderedDict
 import law
 import order as od
 import scinum as sn
+from scinum import Number
 from typing import Tuple
 
 from columnflow.util import maybe_import, try_int, try_complex, try_float
@@ -923,3 +924,41 @@ def blind_sensitive_bins(
     hists = law.util.merge_dicts(signals, backgrounds, data)
 
     return hists
+
+
+def prepare_multiconfig(
+    config_insts: list[od.Config],
+    processes: list[str],
+    variables: list[str],
+    name: str,
+    id: int,
+) -> od.Config:
+
+    # make a dummy config and add processes and other aux info for plotting
+    dummy_campaign = od.Campaign(
+        name=name,
+        id=id,
+        ecm=13.6,
+        bx=25,
+    )
+
+    # make sure to copy the aux from another config and reset luminosity
+    multiconfig_inst = od.Config(
+        campaign=dummy_campaign,
+        name=name,
+        id=id,
+        aux=config_insts[0].aux)
+
+    multiconfig_inst.x.luminosity = Number(0.0)
+    for config_inst in config_insts:
+        multiconfig_inst.x.luminosity += config_inst.x.luminosity
+
+        for process in processes:
+            if (process in config_inst.processes.names()) & (process not in multiconfig_inst.processes.names()):
+                multiconfig_inst.add_process(config_inst.get_process(process))
+
+        for variable in variables:
+            if (variable in config_inst.variables.names()) & (variable not in multiconfig_inst.variables.names()):
+                multiconfig_inst.add_variable(config_inst.get_variable(variable))
+
+    return multiconfig_inst

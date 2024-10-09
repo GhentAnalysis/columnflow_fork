@@ -423,6 +423,7 @@ class AnalysisTask(BaseTask, law.SandboxTask):
                     }
                 else:
                     _cache["all_object_names"] = set(getattr(container, plural).names())
+
             return _cache["all_object_names"]
 
         def has_obj(name):
@@ -448,12 +449,10 @@ class AnalysisTask(BaseTask, law.SandboxTask):
                 lookup.extend(list(object_groups[name]))
             elif accept_patterns:
                 # must eventually be a pattern, perform an object traversal
-                # make this also viable for multi-dim variables for plotting/histograms
-                name_parts = name.split("-")
-                all_objects = get_all_object_names()
-                # match all name parts
-                if all([law.util.multi_match(n, all_objects) for n in name_parts]):
-                    object_names.append(name)
+                for _name in sorted(get_all_object_names()):
+                    if law.util.multi_match(_name, name):
+                        object_names.append(_name)
+
         return law.util.make_unique(object_names)
 
     @classmethod
@@ -1002,6 +1001,15 @@ class MultiConfigTask(AnalysisTask):
         parts.insert_after("task_family", "configs", configs_repr)
 
         return parts
+
+    @property
+    def configs_repr(self):
+
+        configs_repr = "__".join(self.configs[:5])
+        if len(self.configs) > 5:
+            configs_repr += f"_{law.util.create_hash(self.configs[5:])}"
+
+        return configs_repr
 
 
 class ConfigTask(AnalysisTask):

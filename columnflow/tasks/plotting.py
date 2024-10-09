@@ -11,7 +11,7 @@ import law
 import luigi
 import order as od
 
-from columnflow.tasks.framework.base import Requirements, ShiftTask
+from columnflow.tasks.framework.base import Requirements, ShiftTask, MultiConfigTask
 from columnflow.tasks.framework.mixins import (
     CalibratorsMixin, SelectorStepsMixin, ProducersMixin, MLModelsMixin, WeightProducerMixin,
     CategoriesMixin, ShiftSourcesMixin, HistHookMixin,
@@ -23,6 +23,10 @@ from columnflow.tasks.framework.decorators import view_output_plots
 from columnflow.tasks.framework.remote import RemoteWorkflow
 from columnflow.tasks.histograms import MergeHistograms, MergeShiftedHistograms
 from columnflow.util import DotDict, dev_sandbox, dict_add_strict
+
+from columnflow.plotting.plot_util import prepare_multiconfig
+
+logger = law.logger.get_logger(__name__)
 
 
 class PlotVariablesBase(
@@ -75,9 +79,30 @@ class PlotVariablesBase(
     @view_output_plots
     def run(self):
         import hist
-
         # get the shifts to extract and plot
         plot_shifts = law.util.make_list(self.get_plot_shifts())
+
+        # if actual MultiConfigTask change self.config_inst to multiconfig which contrains all needed processes
+        # (replaces the use of fake_root)
+        # else: use first config in self.config_insts as self.config_inst
+        if len(self.configs) == 1:
+            self.config_inst = self.config_insts[0]
+        else:
+            self.config_inst = prepare_multiconfig(
+                config_insts=self.config_insts,
+                processes=self.processes,
+                variables=self.variables,
+                name=self.configs_repr,
+                id=sum([config_inst.id * (10)**i for i, config_inst in enumerate(self.config_insts)])
+            )
+
+        # prepare other config objects
+        # assume the variables are defined for all configs since MergeHistogram is required
+        variable_tuple = self.variable_tuples[self.branch_data.variable]
+        variable_insts = [
+            self.config_inst.get_variable(var_name)
+            for var_name in variable_tuple
+        ]
 
         # copy process instances once so that their auxiliary data fields can be used as a storage
         # for process-specific plot parameters later on in plot scripts without affecting the
@@ -90,14 +115,6 @@ class PlotVariablesBase(
         process_insts = list(fake_root.processes)
         fake_root.processes.clear()
 
-        # prepare other config objects
-        variable_tuple = self.variable_tuples[self.branch_data.variable]
-        variable_insts = [
-            self.config_inst.get_variable(var_name)
-            for var_name in variable_tuple
-        ]
-        category_inst = self.config_inst.get_category(self.branch_data.category)
-        leaf_category_insts = category_inst.get_leaf_categories() or [category_inst]
         sub_process_insts = {
             process_inst: [sub for sub, _, _ in process_inst.walk_processes(include_self=True)]
             for process_inst in process_insts
@@ -106,36 +123,48 @@ class PlotVariablesBase(
         # histogram data per process copy
         hists = {}
 
-        with self.publish_step(f"plotting {self.branch_data.variable} in {category_inst.name}"):
-            for dataset, inp in self.input().items():
-                dataset_inst = self.config_inst.get_dataset(dataset)
-                h_in = inp["collection"][0]["hists"].targets[self.branch_data.variable].load(formatter="pickle")
+        with self.publish_step(f"plotting {self.branch_data.variable} in {self.branch_data.category}"):
+            for config, datasets_inp in self.input().items():
+                config_inst = self.analysis_inst.get_config(config)
 
-                # loop and extract one histogram per process
-                for process_inst in process_insts:
-                    # skip when the dataset is already known to not contain any sub process
-                    if not any(
-                        dataset_inst.has_process(sub_process_inst.name)
-                        for sub_process_inst in sub_process_insts[process_inst]
-                    ):
-                        continue
+                # category ids are config specific
+                category_inst = config_inst.get_category(self.branch_data.category)
+                leaf_category_insts = category_inst.get_leaf_categories() or [category_inst]
 
-                    # select processes and reduce axis
-                    h = h_in.copy()
-                    h = h[{
-                        "process": [
-                            hist.loc(p.id)
-                            for p in sub_process_insts[process_inst]
-                            if p.id in h.axes["process"]
-                        ],
-                    }]
-                    h = h[{"process": sum}]
+                for dataset, inp in datasets_inp.items():
+                    dataset_inst = config_inst.get_dataset(dataset)
+                    h_in = inp["collection"][0]["hists"].targets[self.branch_data.variable].load(formatter="pickle")
 
-                    # add the histogram
-                    if process_inst in hists:
-                        hists[process_inst] += h
-                    else:
-                        hists[process_inst] = h
+                    # loop and extract one histogram per process
+                    for process_inst in process_insts:
+                        # skip when the dataset is already known to not contain any sub process
+                        if not any(
+                            dataset_inst.has_process(sub_process_inst.name)
+                            for sub_process_inst in sub_process_insts[process_inst]
+                        ):
+                            continue
+
+                        # select processes and reduce axis
+                        h = h_in.copy()
+                        h = h[{
+                            "process": [
+                                hist.loc(p.id)
+                                for p in sub_process_insts[process_inst]
+                                if p.id in h.axes["process"]
+                            ],
+                            "category": [
+                                hist.loc(c.id)
+                                for c in leaf_category_insts
+                                if c.id in h.axes["category"]
+                            ],
+                        }]
+                        h = h[{"process": sum, "category": sum}]
+
+                        # add the histogram
+                        if process_inst in hists:
+                            hists[process_inst] += h
+                        else:
+                            hists[process_inst] = h
             # there should be hists to plot
             if not hists:
                 raise Exception(
@@ -158,19 +187,13 @@ class PlotVariablesBase(
                 h = hists[process_inst]
                 # selections
                 h = h[{
-                    "category": [
-                        hist.loc(c.id)
-                        for c in leaf_category_insts
-                        if c.id in h.axes["category"]
-                    ],
                     "shift": [
                         hist.loc(s.id)
                         for s in plot_shifts
                         if s.id in h.axes["shift"]
                     ],
                 }]
-                # reductions
-                h = h[{"category": sum}]
+
                 # store
                 _hists[process_inst] = h
             hists = _hists
@@ -219,16 +242,23 @@ class PlotVariablesBaseSingleShift(
         return reqs
 
     def requires(self):
-        return {
-            d: self.reqs.MergeHistograms.req(
-                self,
-                dataset=d,
-                branch=-1,
-                _exclude={"branches"},
-                _prefer_cli={"variables"},
-            )
-            for d in self.datasets
-        }
+
+        # only require Histograms of datasets that exist in the configs
+        # Might need to change to only require datasets that exist in all configs
+        ret = {}
+        for config_inst in self.config_insts:
+            ret[config_inst.name] = {}
+            for d in self.datasets:
+                if d in config_inst.datasets.names():
+                    ret[config_inst.name][d] = self.reqs.MergeHistograms.req(
+                        self,
+                        config=config_inst.name,
+                        dataset=d,
+                        branch=-1,
+                        _exclude={"branches"},
+                        _prefer_cli={"variables"},
+                    )
+        return ret
 
     def plot_parts(self) -> law.util.InsertableDict:
         parts = super().plot_parts()
@@ -240,7 +270,6 @@ class PlotVariablesBaseSingleShift(
         hooks_repr = self.hist_hooks_repr
         if hooks_repr:
             parts["hook"] = f"hooks_{hooks_repr}"
-
         return parts
 
     def output(self):
@@ -258,14 +287,30 @@ class PlotVariablesBaseSingleShift(
         return [self.global_shift_inst]
 
 
-class PlotVariables1D(
+class PlotMultiConfigVariables1D(
     PlotVariablesBaseSingleShift,
     PlotBase1D,
 ):
+
     plot_function = PlotBase.plot_function.copy(
         default="columnflow.plotting.plot_functions_1d.plot_variable_per_process",
         add_default_to_description=True,
     )
+
+
+class PlotVariables1D(
+    law.WrapperTask,
+    PlotMultiConfigVariables1D,
+):
+
+    # force this one to be a local workflow
+    workflow = "local"
+
+    def requires(self):
+        return {
+            config: PlotMultiConfigVariables1D.req(self, configs=(config,))
+            for config in self.configs
+        }
 
 
 class PlotVariables2D(

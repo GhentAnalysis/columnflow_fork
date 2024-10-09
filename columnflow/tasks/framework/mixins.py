@@ -1316,7 +1316,6 @@ class MLModelTrainingMixin(
     A mixin class for training machine learning models.
     """
 
-<<<<<<< HEAD
     configs = law.CSVParameter(
         default=(),
         description="comma-separated names of analysis config to use; should only contain a single "
@@ -1377,7 +1376,6 @@ class MLModelTrainingMixin(
             the number of configs used by the ML model.
         """
         calibrators: Union[tuple[str], tuple[tuple[str]]] = params.get("calibrators") or (None,)
-
         # broadcast to configs
         n_configs = len(ml_model_inst.config_insts)
         if len(calibrators) == 1 and n_configs != 1:
@@ -1413,7 +1411,6 @@ class MLModelTrainingMixin(
             init_kwargs = law.util.merge_dicts(params, {"config_inst": config_inst})
             for calibrator in _calibrators:
                 CalibratorMixin.get_calibrator_inst(calibrator, kwargs=init_kwargs)
-
         return calibrators
 
     @classmethod
@@ -1541,8 +1538,6 @@ class MLModelTrainingMixin(
 
         return producers
 
-=======
->>>>>>> upstream/feature/MultiConfigTask_v3
     @classmethod
     def resolve_param_values(cls, params: dict[str, Any]) -> dict[str, Any]:
         """

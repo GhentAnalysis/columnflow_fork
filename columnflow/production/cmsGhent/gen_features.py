@@ -57,11 +57,11 @@ _prompt_status = ["isPrompt", "isDirectPromptTauDecayProduct", "isHardProcess",
         ("pdgId", "genPartIdx")) |
     four_vec(
         ("GenPart"),
-        ("pdgId", "status", "statusFlags"),
+        ("pdgId", "status", "statusFlags", "genPartIdxMother"),
     ),
     produces=four_vec(
         {"Electron", "Muon"},
-        {"isPrompt", "matchPdgId", "isChargeFlip"},
+        {"isPrompt", "matchPdgId", "isChargeFlip", "matchIsPhoton", "matchMotherIsPhoton"},
     ),
     mc_only=True,
     exposed=False,
@@ -109,9 +109,15 @@ def lepton_gen_features(
         valid_match = is_nanoAOD_matched | lepton_within_cone | photon_within_cone
         match_pdgId = (match.pdgId == lepton.pdgId) & valid_match
         is_chargeflip = (match.pdgId == -lepton.pdgId) & valid_match
+        match_isPhoton = (match.pdgId == 22) & valid_match
+        matchMother_isPhoton = (genpart[match.genPartIdxMother].pdgId ==
+                                22) & valid_match & (match.genPartIdxMother != -1)
 
         events = set_ak_column(events, f"{name}.isPrompt", ak.fill_none(match_isPrompt, False, axis=-1))
         events = set_ak_column(events, f"{name}.matchPdgId", ak.fill_none(match_pdgId, False, axis=-1))
+        events = set_ak_column(events, f"{name}.matchIsPhoton", ak.fill_none(match_isPhoton, False, axis=-1))
+        events = set_ak_column(events, f"{name}.matchMotherIsPhoton",
+                               ak.fill_none(matchMother_isPhoton, False, axis=-1))
         events = set_ak_column(events, f"{name}.isChargeFlip", ak.fill_none(is_chargeflip, False, axis=-1))
 
     return events
