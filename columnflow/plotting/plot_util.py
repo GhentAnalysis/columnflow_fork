@@ -396,7 +396,8 @@ def prepare_style_config(
     # disable minor ticks based on variable_inst
     if variable_inst.discrete_x:
         # TODO: options for very large ranges, or non-uniform discrete x
-        tx = np.ceil(np.arange(*xlim, variable_inst.n_bins // 10 + 1))
+        tx = np.array(variable_inst.bin_edges)
+        tx = (tx[1:] + tx[:-1]) / 2
         style_config["ax_cfg"]["xticks"] = tx
         style_config["ax_cfg"]["minorxticks"] = []
 
