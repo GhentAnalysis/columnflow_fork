@@ -136,7 +136,10 @@ class SelectionEfficiencyHistMixin(DatasetsProcessesMixin):
                     process_inst.get_xsec(self.config_inst.campaign.ecm).nominal
                     for process_inst in dt_process_insts
                 )
-            h_in = inp["collection"][0]["hists"].load(formatter="pickle")[name]
+
+            h_ins = inp["collection"][0]["hists"].load(formatter="pickle")
+            assert name in h_ins, f"cannot find {name} in available histograms: {', '.join(h_ins.keys())}"
+            h_in = h_ins[name]
             for variable_inst in variable_insts:
                 v_idx = h_in.axes.name.index(variable_inst.name)
                 for mi, mj in variable_inst.x("merge_bins", []):
@@ -312,12 +315,20 @@ class FixedWPEfficiencyBase(
                 )
 
                 # create a dummy category for plotting
-                cat = od.Category(name=self.flav_name, label=self.flavours[flav])
+                cat = od.Category(
+                    name=self.flav_name + wp,
+                    label=self.flavours[flav] + "\n" + "wp " + wp
+                )
 
                 # custom styling:
                 label_values = np.around(
                     h[{self.flav_name: hist.loc(flav)}].values() * 100, decimals=1)
-                style_config = {"plot2d_cfg": {"cmap": "PiYG", "labels": label_values}}
+                style_config = {
+                    "plot2d_cfg": {"cmap": "PiYG", "labels": label_values},
+                    "annotate_cfg": {"bbox": dict(alpha=0.3, color="white")},
+                    "legend_cfg": dict(framealpha=0.3, facecolor="white"),
+                }
+
                 # call the plot function
                 fig, _ = self.call_plot_func(
                     self.plot_function,

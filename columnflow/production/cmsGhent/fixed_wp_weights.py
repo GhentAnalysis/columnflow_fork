@@ -432,16 +432,6 @@ def fixed_wp_efficiency_hists(
         "mc_weight": events.mc_weight[no_tag_selection],
     })
 
-    histogram = hist.Hist.new.IntCat(self.flavour_binning, name=self.flavour_input)  # Jet hadronFlavour 0, 4, or 5
-    # add variables for binning the efficiency
-    for var_inst in self.variable_insts:
-        histogram = histogram.Var(
-            var_inst.bin_edges,
-            name=var_inst.name,
-            label=var_inst.get_full_x_title(),
-        )
-    hists[f"{self.tag_name}_efficiencies"] = histogram.Weight()
-
     fill_kwargs = {
         # broadcast event weight and process-id to jet weight
         self.flavour_input: ak.flatten(self.flavour_transform(object_data[self.flavour_input])),
@@ -462,9 +452,22 @@ def fixed_wp_efficiency_hists(
         # apply the variable (flatten to fill histogram)
         fill_kwargs[var_inst.name] = ak.flatten(expr(selected_events))
 
-    # fill inclusive histogram
+    if f"{self.tag_name}_efficiencies" not in hists:
+        histogram = hist.Hist.new.IntCat(self.flavour_binning, name=self.flavour_input)  # Jet hadronFlavour 0, 4, or 5
+        # add variables for binning the efficiency
+        for var_inst in self.variable_insts:
+            histogram = histogram.Var(
+                var_inst.bin_edges,
+                name=var_inst.name,
+                label=var_inst.get_full_x_title(),
+            )
+
+        hists[f"{self.tag_name}_efficiencies"] = histogram.Weight()
+        hists[f"{self.tag_name}_efficiencies"].name = f"{self.algorithm}({self.discriminator})"
+
+
+    # fill histogram
     hists[f"{self.tag_name}_efficiencies"].fill(**fill_kwargs)
-    hists[f"{self.tag_name}_efficiencies"].name = f"{self.algorithm}({self.discriminator})"
 
     return events
 
