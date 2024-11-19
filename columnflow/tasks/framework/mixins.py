@@ -1653,7 +1653,7 @@ class CategoriesMixin(AnalysisTask):
 
         config_insts = params["config_insts"]
 
-        #TODO: cross-checks over multiple config insts
+        # TODO: cross-checks over multiple config insts
         config_inst = config_insts[0]
 
         # resolve categories
@@ -1714,7 +1714,7 @@ class VariablesMixin(AnalysisTask):
 
         config_insts = params["config_insts"]
 
-        #TODO: cross-checks over multiple config insts
+        # TODO: cross-checks over multiple config insts
         config_inst = config_insts[0]
 
         # resolve variables
@@ -1812,7 +1812,7 @@ class DatasetsProcessesMixin(AnalysisTask):
     # NOTE: changed from CSV to MultiCSVParameter, might break things
     # where self.dataset or self.dataset_inst is used
     datasets = law.MultiCSVParameter(
-        default=((),),
+        default=(),
         description="comma-separated dataset names or patters to select; can also be the key of a "
         "mapping defined in the 'dataset_groups' auxiliary data of the config; when empty, uses "
         "all datasets registered in the config that contain any of the selected --processes; empty "
@@ -1820,8 +1820,9 @@ class DatasetsProcessesMixin(AnalysisTask):
         brace_expand=True,
         parse_empty=True,
     )
-    #TODO: this should be per config
-    processes = law.CSVParameter(
+
+    # TODO: this should be per config
+    processes = law.MultiCSVParameter(
         default=(),
         description="comma-separated process names or patterns for filtering processes; can also "
         "be the key of a mapping defined in the 'process_groups' auxiliary data of the config; "
@@ -1855,22 +1856,36 @@ class DatasetsProcessesMixin(AnalysisTask):
         # TODO: should be resolved for all configs
         if "processes" in params:
             if params["processes"]:
-                processes = cls.find_config_objects(
-                    params["processes"],
-                    config_insts[0],
-                    od.Process,
-                    config_insts[0].x("process_groups", {}),
-                    deep=True,
-                )
+                processes = list(params["processes"])
+                if len(processes) == 1:
+                    # resolve to number of configs
+                    processes = list(processes * len(config_insts))
+                elif len(processes) != n_configs:
+                    raise ValueError(
+                        f"number of processes ({len(processes)}) does not match number of configs ({n_configs})",
+                    )
+
+                for i, _processes in enumerate(processes):
+                    config_inst = config_insts[i]
+                    processes[i] = tuple(cls.find_config_objects(
+                        _processes,
+                        config_inst,
+                        od.Process,
+                        config_inst.x("process_groups", {}),
+                        deep=True,
+                    ))
             else:
-                processes = config_insts[0].processes.names()
+                processes = [config_inst.processes.names() for config_inst in config_insts]
 
             # complain when no processes were found
             if not processes and not cls.allow_empty_processes:
                 raise ValueError(f"no processes found matching {params['processes']}")
 
             params["processes"] = tuple(processes)
-            params["process_insts"] = [config_insts[0].get_process(p) for p in params["processes"]]
+            params["process_insts"] = tuple(
+                tuple(config_inst.get_process(p) for p in params["processes"][i])
+                for i, config_inst in enumerate(config_insts)
+            )
 
         # resolve datasets
         if "datasets" in params:
@@ -1895,15 +1910,19 @@ class DatasetsProcessesMixin(AnalysisTask):
 
             elif "processes" in params:
                 # pick all datasets that contain any of the requested (sub) processes
-                sub_process_insts = sum((
-                    [proc for proc, _, _ in process_inst.walk_processes(include_self=True)]
-                    for process_inst in map(config_inst.get_process, params["processes"])
-                ), [])
-                datasets = [
-                    dataset_inst.name
-                    for dataset_inst in config_inst.datasets
-                    if any(map(dataset_inst.has_process, sub_process_insts))
-                ]
+                datasets = list()
+                for i, _processes in enumerate(processes):
+
+                    sub_process_insts = sum((
+                        [proc for proc, _, _ in process_inst.walk_processes(include_self=True)]
+                        for process_inst in map(config_insts[i].get_process, _processes)
+                    ), [])
+
+                    datasets.append(tuple([
+                        dataset_inst.name
+                        for dataset_inst in config_insts[i].datasets
+                        if any(map(dataset_inst.has_process, sub_process_insts))
+                    ]))
 
             # complain when no datasets were found
             if not datasets and not cls.allow_empty_datasets:

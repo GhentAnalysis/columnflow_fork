@@ -955,7 +955,6 @@ class MultiConfigTask(AnalysisTask):
         #     raise Exception("No configs have been requested.")
 
         # store a reference to the config inst
-        breakpoint()
         if "config_insts" not in params and "analysis_inst" in params and "configs" in params:
             params["config_insts"] = tuple([
                 params["analysis_inst"].get_config(config)
