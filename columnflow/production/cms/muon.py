@@ -67,7 +67,7 @@ def muon_weights(
         "year": self.year,
         "abseta": abs_eta,
         "eta": abs_eta,
-        "pt": pt,
+        "pt": ak.max([pt, ak.ones_like(pt) * 15], axis=0),
     }
 
     # loop over systematics

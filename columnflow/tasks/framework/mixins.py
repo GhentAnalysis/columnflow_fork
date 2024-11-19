@@ -1809,7 +1809,7 @@ class VariablesMixin(AnalysisTask):
 
 
 class DatasetsProcessesMixin(AnalysisTask):
-    #NOTE: changed from CSV to MultiCSVParameter, might break things
+    # NOTE: changed from CSV to MultiCSVParameter, might break things
     # where self.dataset or self.dataset_inst is used
     datasets = law.MultiCSVParameter(
         default=((),),
@@ -1852,7 +1852,7 @@ class DatasetsProcessesMixin(AnalysisTask):
         n_configs = len(config_insts)
 
         # resolve processes
-        #TODO: should be resolved for all configs
+        # TODO: should be resolved for all configs
         if "processes" in params:
             if params["processes"]:
                 processes = cls.find_config_objects(
@@ -1946,7 +1946,7 @@ class DatasetsProcessesMixin(AnalysisTask):
 
 
 class ShiftSourcesMixin(ConfigTask):
-    #TODO: should be AnalysisTask (look at PlotShiftedVariables1D)
+    # TODO: should be AnalysisTask (look at PlotShiftedVariables1D)
     shift_sources = law.CSVParameter(
         default=(),
         description="comma-separated shift source names (without direction) or patterns to select; "
