@@ -157,7 +157,7 @@ class PlotVariablesBase(
                         "  - requested variable requires columns that were missing during histogramming\n"
                         "  - selected --processes did not match any value on the process axis of the input histogram",
                     )
-            breakpoint()
+
             # update histograms using custom hooks
             hists = self.invoke_hist_hooks(hists)
 
