@@ -311,6 +311,26 @@ class PlotVariables1D(
     )
 
 
+class PlotVariables1DPerConfig(
+    law.WrapperTask,
+    PlotVariables1D,
+):
+
+    workflow = "local"
+    output_collection_cls = law.NestedSiblingFileCollection
+
+    def requires(self):
+        return {
+            PlotVariables1D.req(
+                self,
+                configs=(config,),
+                datasets=(self.datasets[i],),
+                processes=(self.processes[i],)
+            )
+            for i, config in enumerate(self.configs)
+        }
+
+
 class PlotVariables2D(
     PlotVariablesBaseSingleShift,
     PlotBase2D,
