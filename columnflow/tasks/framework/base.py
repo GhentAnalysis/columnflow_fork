@@ -1008,6 +1008,8 @@ class MultiConfigTask(AnalysisTask):
 
         return parts
 
+    # function to resolve objects over multiple configs
+
 
 class ConfigTask(AnalysisTask):
 

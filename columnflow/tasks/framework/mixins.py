@@ -1546,7 +1546,6 @@ class MLModelsMixin(AnalysisTask):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
         # get the ML model instances
         self.ml_model_insts = [
             MLModelMixinBase.get_ml_model_inst(
@@ -1739,25 +1738,45 @@ class VariablesMixin(AnalysisTask):
                     else:
                         multi_var_parts.append(parts)
 
-                # resolve single variables
-                variables = cls.find_config_objects(
-                    single_vars,
-                    config_inst,
-                    od.Variable,
-                    config_inst.x("variable_groups", {}),
-                )
+                def resolve_config_objects(
+                    cls,
+                    objects,
+                    config_insts,
+                    Object,
+                    object_groups,
+                ) -> [str]:
+                    outp = None
+                    all_obj = set()
+                    config_obj = dict()
+                    for _config_inst in config_insts:
+                        config_obj[_config_inst] = set(cls.find_config_objects(
+                            objects,
+                            _config_inst,
+                            Object,
+                            _config_inst.x(object_groups, {}),
+                        ))
+                        all_obj |= config_obj[_config_inst]
+
+                        if outp:
+                            outp &= config_obj[_config_inst]
+                        else:
+                            outp = config_obj[_config_inst]
+
+                        # warnings for objects not defined in all configs
+                        if len(all_obj - config_obj[_config_inst]) != 0:
+                            for obj in (all_obj - config_obj[_config_inst]):
+                                law.logger.get_logger(cls.task_family).warning(
+                                    f"The object {Object} with name {obj} is not defined in the config {_config_inst.name}."
+                                )
+                    return list(outp)
+
+                variables = resolve_config_objects(cls, single_vars, config_insts, od.Variable, "variable_groups")
 
                 # for each multi-variable, resolve each part separately and create the full
                 # combinatorics of all possibly pattern-resolved parts
                 for parts in multi_var_parts:
                     resolved_parts = [
-                        cls.find_config_objects(
-                            part,
-                            config_inst,
-                            od.Variable,
-                            config_inst.x("variable_groups", {}),
-                        )
-                        for part in parts
+                        resolve_config_objects(cls, part, config_insts, od.Variable, "variable_groups") for part in parts
                     ]
                     variables.extend([
                         cls.join_multi_variable(_parts)
@@ -1949,19 +1968,36 @@ class DatasetsProcessesMixin(AnalysisTask):
 
     @property
     def datasets_repr(self):
-        return "x"
-        # if len(self.datasets) == 1:
-        #     return self.datasets[0]
 
-        # return f"{len(self.datasets)}_{law.util.create_hash(sorted(self.datasets))}"
+        datasets = self.datasets
+        if len(set(datasets)) == 1:
+            datasets = (self.datasets[0],)
+
+        if (len(self.datasets) == 1) & (len(self.datasets[0]) == 1):
+            return self.datasets[0][0]
+
+        _repr = ""
+        merge_datasets = []
+        for _datasets in sorted(datasets):
+            merge_datasets += sorted(_datasets)
+            _repr += f"{len(_datasets)}_"
+        return _repr + f"_{law.util.create_hash(sorted(merge_datasets))}"
 
     @property
     def processes_repr(self):
-        return "y"
-        # if len(self.processes) == 1:
-        #     return self.processes[0]
+        processes = self.processes
+        if len(set(processes)) == 1:
+            processes = (self.processes[0],)
 
-        # return f"{len(self.processes)}_{law.util.create_hash(self.processes)}"
+        if (len(self.processes) == 1) & (len(self.processes[0]) == 1):
+            return self.processes[0][0]
+
+        _repr = ""
+        merge_processes = []
+        for _processes in sorted(processes):
+            merge_processes += sorted(_processes)
+            _repr += f"{len(_processes)}_"
+        return _repr + f"_{law.util.create_hash(sorted(merge_processes))}"
 
 
 class ShiftSourcesMixin(ConfigTask):
