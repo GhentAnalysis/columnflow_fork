@@ -40,6 +40,7 @@ class Requirements(DotDict):
         instances and additional keyword arguments ``kwargs``, which are
         added.
         """
+
     def __init__(self, *others, **kwargs):
 
         super().__init__()
@@ -873,15 +874,16 @@ class AnalysisTask(BaseTask, law.SandboxTask):
             # get other options
             loc, wlcg_fs, store_parts_modifier = (location[1:] + [None, None, None])[:3]
             kwargs.setdefault("store_parts_modifier", store_parts_modifier)
+            # create the wlcg target
+            wlcg_kwargs = kwargs.copy()
+            wlcg_kwargs.setdefault("fs", wlcg_fs)
+            wlcg_target = self.wlcg_target(*path, **wlcg_kwargs)
+            # TODO: add rule for falling back to wlcg target
             # create the local target
             local_kwargs = kwargs.copy()
             loc_key = "fs" if (loc and law.config.has_section(loc)) else "store"
             local_kwargs.setdefault(loc_key, loc)
             local_target = self.local_target(*path, **local_kwargs)
-            # create the wlcg target
-            wlcg_kwargs = kwargs.copy()
-            wlcg_kwargs.setdefault("fs", wlcg_fs)
-            wlcg_target = self.wlcg_target(*path, **wlcg_kwargs)
             # build the mirrored target from these two
             mirrored_target_cls = (
                 law.MirroredFileTarget
@@ -889,7 +891,7 @@ class AnalysisTask(BaseTask, law.SandboxTask):
                 else law.MirroredDirectoryTarget
             )
             return mirrored_target_cls(
-                path=local_target.path,
+                path=local_target.abspath,
                 remote_target=wlcg_target,
                 local_target=local_target,
             )
@@ -920,6 +922,97 @@ class AnalysisTask(BaseTask, law.SandboxTask):
         }
 
 
+class MultiConfigTask(AnalysisTask):
+
+    configs = law.CSVParameter(
+        default=(),
+        description="comma-separated names of analysis config to use; empty default",
+        brace_expand=True,
+        parse_empty=True,
+    )
+
+    config_order_dependent = False
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # store a reference to the config instances
+        self.config_insts = tuple(self.analysis_inst.get_config(config) for config in self.configs)
+
+    @classmethod
+    def resolve_param_values(cls, params: dict[str, Any]) -> dict[str, Any]:
+        """Resolve the parameter values for the given parameters.
+
+        This method retrieves the parameters and resolves the ML model instance, configs,
+        calibrators, selector, and producers. It also calls the model's setup hook.
+
+        :param params: A dictionary of parameters that may contain the analysis instance and ML model.
+        :return: A dictionary containing the resolved parameters.
+        :raises Exception: If the ML model instance received configs to define training configs,
+            but did not define any.
+        """
+        params = super().resolve_param_values(params)
+
+        # if not params.get("configs"):
+        #     raise Exception("No configs have been requested.")
+
+        # store a reference to the config inst
+        if "config_insts" not in params and "analysis_inst" in params and "configs" in params:
+            params["config_insts"] = tuple([
+                params["analysis_inst"].get_config(config)
+                for config in params["configs"]
+            ])
+
+        return params
+
+    @classmethod
+    def get_array_function_kwargs(cls, task=None, **params):
+        kwargs = super().get_array_function_kwargs(task=task, **params)
+
+        if task:
+            kwargs["config_insts"] = task.config_insts
+        elif "config_insts" in params:
+            kwargs["config_insts"] = params["config_insts"]
+        elif "configs" in params and "analysis_inst" in kwargs:
+            kwargs["config_insts"] = tuple([
+                kwargs["analysis_inst"].get_config(config)
+                for config in params["configs"]
+            ])
+
+        if not kwargs.get("config_insts"):
+            raise Exception(f"Did not manage to resolve config instances from task {task.cls_family}")
+
+        if "config_insts" in kwargs:
+            # for simplicity, we assign the first config as config_inst, but this might be stupid to do...
+            kwargs["config_inst"] = kwargs["config_insts"][0]
+
+        return kwargs
+
+    def store_parts(self) -> law.util.InsertableDict[str, str]:
+        """Generate a dictionary of store parts for the current instance.
+
+        This method extends the base method to include the configs parameter.
+
+        :return: An InsertableDict containing the store parts.
+        """
+        parts = super().store_parts()
+
+        configs = self.configs
+        if not self.config_order_dependent:
+            configs = sorted(configs)
+
+        configs_repr = "__".join(configs[:5])
+
+        if len(configs) > 5:
+            configs_repr += f"_{law.util.create_hash(configs[5:])}"
+
+        parts.insert_after("task_family", "configs", configs_repr)
+
+        return parts
+
+    # function to resolve objects over multiple configs
+
+
 class ConfigTask(AnalysisTask):
 
     config = luigi.Parameter(
@@ -928,13 +1021,31 @@ class ConfigTask(AnalysisTask):
     )
 
     @classmethod
+    def switch_cspm_defaults(cls, params: dict):
+        # TaskArrayFunctions that should be set via the analysis inst aux values
+        cspm_defaults = ("default_calibrator", "default_selector", "default_producer", "default_ml_model")
+
+        # set defaults to the analysis inst if they are set in the config inst
+        for default in cspm_defaults:
+            if params["config_inst"].has_aux(default) and not params["analysis_inst"].has_aux(default):
+                law.logger.get_logger(cls.task_family).warning(
+                    f"The {default} aux value is set in the config, but not in the analysis. "
+                    "It is recommended to set this value in the analysis instead. The value in the "
+                    f"analysis inst will be set to '{params['config_inst'].x(default)}'.",
+                )
+                params["analysis_inst"].set_aux(default, params["config_inst"].x(default))
+
+    @classmethod
     def resolve_param_values(cls, params: dict) -> dict:
         params = super().resolve_param_values(params)
 
         # store a reference to the config inst
         if "config_inst" not in params and "analysis_inst" in params and "config" in params:
             params["config_inst"] = params["analysis_inst"].get_config(params["config"])
+            params["config_insts"] = [params["config_inst"]]
 
+            # switch defaults from config to analysis inst
+            cls.switch_cspm_defaults(params)
         return params
 
     @classmethod
@@ -991,6 +1102,7 @@ class ConfigTask(AnalysisTask):
 
         # store a reference to the config instance
         self.config_inst = self.analysis_inst.get_config(self.config)
+        self.config_insts = [self.config_inst]
 
     def store_parts(self):
         parts = super().store_parts()
@@ -1392,7 +1504,7 @@ class CommandTask(AnalysisTask):
         if "cwd" not in kwargs and self.run_command_in_tmp:
             tmp_dir = law.LocalDirectoryTarget(is_tmp=True)
             tmp_dir.touch()
-            kwargs["cwd"] = tmp_dir.path
+            kwargs["cwd"] = tmp_dir.abspath
         self.publish_message("cwd: {}".format(kwargs.get("cwd", os.getcwd())))
 
         # call it
