@@ -48,13 +48,13 @@ The columnflow framework uses the cutflow features to plot gen-level distributio
     ```
 
     You can verify that what you just ran succeeded by adding `--print-status -1` (-1 = fully recursive) to the previous command.
-    
+
     ```bash
     law run cf.SelectEvents --version dev1 --config l18 --print-status -1
     ```
 
 2. Create the gen-level top-quark $p_T$ distribution plot for the $t\overline{t}$ dilepton dataset The top-quark $p_T$ variable is defined in [config/variables.py](https://gitlab.cern.ch/ghentanalysis/columnflowanalysis/ttz/-/blob/master/ttz/config/variables.py?ref_type=heads#L328).
-    
+
     ```bash
     law run cf.PlotCutflowVariables1D --version dev1 --config l18 --datasets "tt_dl_powheg" --processes "tt" --variables "genTop_pt" --skip-ratio --categories "incl"
     ```
