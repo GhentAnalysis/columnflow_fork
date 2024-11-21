@@ -14,7 +14,6 @@ import law
 from columnflow.util import try_float, try_complex, DotDict
 from columnflow.types import Iterable
 
-
 user_parameter_inst = luigi.Parameter(
     default=getpass.getuser(),
     description="the user running the current task, mainly for central schedulers to distinguish "
@@ -25,7 +24,7 @@ user_parameter_inst = luigi.Parameter(
 _default_last_bin_edge_inclusive = law.config.get_expanded_bool(
     "analysis",
     "default_histogram_last_edge_inclusive",
-    None,
+    False,
 )
 last_edge_inclusive_inst = law.OptionalBoolParameter(
     default=_default_last_bin_edge_inclusive,
