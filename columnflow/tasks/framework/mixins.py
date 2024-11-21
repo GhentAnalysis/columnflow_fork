@@ -1768,7 +1768,8 @@ class VariablesMixin(AnalysisTask):
                         if len(all_obj - config_obj[_config_inst]) != 0:
                             for obj in (all_obj - config_obj[_config_inst]):
                                 law.logger.get_logger(cls.task_family).warning(
-                                    f"The object {Object} with name {obj} is not defined in the config {_config_inst.name}."
+                                    f"The object {Object} with name {obj} \
+                                        is not defined in the config {_config_inst.name}.",
                                 )
                     return list(outp)
 
@@ -1778,7 +1779,12 @@ class VariablesMixin(AnalysisTask):
                 # combinatorics of all possibly pattern-resolved parts
                 for parts in multi_var_parts:
                     resolved_parts = [
-                        resolve_config_objects(cls, part, config_insts, od.Variable, "variable_groups") for part in parts
+                        resolve_config_objects(
+                            cls,
+                            part,
+                            config_insts,
+                            od.Variable,
+                            "variable_groups") for part in parts
                     ]
                     variables.extend([
                         cls.join_multi_variable(_parts)

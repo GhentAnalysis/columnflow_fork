@@ -325,7 +325,7 @@ class PlotVariables1DPerConfig(
                 self,
                 configs=(config,),
                 datasets=(self.datasets[i],),
-                processes=(self.processes[i],)
+                processes=(self.processes[i],),
             )
             for i, config in enumerate(self.configs)
         }
