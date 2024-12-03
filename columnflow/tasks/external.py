@@ -94,12 +94,16 @@ class GetDatasetLFNs(DatasetTask, law.tasks.TransferLocalFile):
         :raises ValueError: If number of loaded LFNs does not correspond to number of LFNs specified
             in this ``dataset_info_inst``.
         """
-        # prepare the lfn getter
+        # prepare the lfn getter from config aux
         get_dataset_lfns = self.config_inst.x("get_dataset_lfns", None)
         msg = "via custom config function"
         if not callable(get_dataset_lfns):
-            get_dataset_lfns = self.get_dataset_lfns_dasgoclient
-            msg = "via dasgoclient"
+            # prepare the lfn getter from dataset aux
+            get_dataset_lfns = self.dataset_inst.x("get_dataset_lfns", None)
+            msg = "via custom dataset function"
+            if not callable(get_dataset_lfns):
+                get_dataset_lfns = self.get_dataset_lfns_dasgoclient
+                msg = "via dasgoclient"
 
         lfns = []
         for key in sorted(self.dataset_info_inst.keys):
@@ -157,10 +161,12 @@ class GetDatasetLFNs(DatasetTask, law.tasks.TransferLocalFile):
         if code != 0:
             raise Exception(f"dasgoclient query failed:\n{out}")
 
+        broken_files = dataset_inst[shift_inst.name].get_aux("broken_files", [])
+
         return [
             line.strip()
             for line in out.strip().split("\n")
-            if line.strip().endswith(".root")
+            if line.strip().endswith(".root") and line.strip() not in broken_files
         ]
 
     def iter_nano_files(
