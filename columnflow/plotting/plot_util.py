@@ -242,14 +242,6 @@ def apply_variable_settings(
                 rebin_factor = int(rebin_factor)
                 h = h[{var_inst.name: hist.rebin(rebin_factor)}]
                 hists[proc_inst] = h
-        # overflow and underflow bins
-        overflow = getattr(var_inst, "overflow", False) or var_inst.x("overflow", False)
-        underflow = getattr(var_inst, "underflow", False) or var_inst.x("underflow", False)
-
-        if overflow or underflow:
-            for proc_inst, h in list(hists.items()):
-                h = use_flow_bins(h, var_inst.name, underflow=underflow, overflow=overflow)
-                hists[proc_inst] = h
 
         # slicing
         slices = getattr(var_inst, "slice", None) or var_inst.x("slice", None)
@@ -261,6 +253,16 @@ def apply_variable_settings(
             slice_1 = int(slices[1]) if try_int(slices[1]) else complex(slices[1])
             for proc_inst, h in list(hists.items()):
                 h = h[{var_inst.name: slice(slice_0, slice_1)}]
+                hists[proc_inst] = h
+
+
+        # overflow and underflow bins
+        overflow = getattr(var_inst, "overflow", False) or var_inst.x("overflow", False)
+        underflow = getattr(var_inst, "underflow", False) or var_inst.x("underflow", False)
+
+        if overflow or underflow:
+            for proc_inst, h in list(hists.items()):
+                h = use_flow_bins(h, var_inst.name, underflow=underflow, overflow=overflow)
                 hists[proc_inst] = h
 
     return hists
@@ -373,6 +375,11 @@ def prepare_style_config(
         variable_inst.x("x_max", variable_inst.x_max),
     )
 
+    if (sl := getattr(variable_inst, "slice", variable_inst.aux.get("slice", None))):
+        bins = np.linspace(*xlim, variable_inst.n_bins + 1)
+        bins = bins[slice(sl[0], sl[1] + 1)]
+        xlim = bins[[0, -1]]
+
     style_config = {
         "ax_cfg": {
             "xlim": xlim,
@@ -398,11 +405,21 @@ def prepare_style_config(
         # TODO: options for very large ranges, or non-uniform discrete x
         tx = np.array(variable_inst.bin_edges)
         tx = (tx[1:] + tx[:-1]) / 2
+        slices = getattr(variable_inst, "slice", None) or variable_inst.x("slice", None)
+        if (
+            slices and isinstance(slices, Iterable) and len(slices) >= 2 and
+            try_complex(slices[0]) and try_complex(slices[1])
+        ):
+            sl = slice(*slices[:2])
+            tx = tx[sl]
+        else:
+            sl = slice(None, None)
         style_config["ax_cfg"]["xticks"] = tx
         style_config["ax_cfg"]["minorxticks"] = []
 
         # add custom bin labels if specified and same amount of x ticks
         if x_labels := variable_inst.x_labels:
+            x_labels = x_labels[sl]
             if len(x_labels) == len(tx):
                 style_config["ax_cfg"]["xticklabels"] = x_labels
 
