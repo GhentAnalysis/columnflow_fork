@@ -34,7 +34,7 @@ class TriggerScaleFactorsBase(
 ):
     exclude_index = True
     trigger = luigi.Parameter(description="Trigger to measure")
-    ref_trigger = luigi.Parameter(description="Reference to use")
+    ref_trigger = luigi.Parameter(description="Reference to use", default=None)
 
     sandbox = dev_sandbox(law.config.get("analysis", "default_columnar_sandbox"))
 
@@ -52,12 +52,27 @@ class TriggerScaleFactorsBase(
 
         # variable in which the nominal variables are binned
         self.nonaux_variable_insts = [v for v in self.variable_insts if v.aux.get("auxiliary") is None]
-        self.trigger_vr = "HLT." + self.trigger
-        self.ref_trigger_vr = "HLT." + self.ref_trigger
+        if not self.trigger.startswith("HLT."):
+            self.trigger_vr = "HLT." + self.trigger
+        if not self.ref_trigger_vr.startswith("HLT."):
+            self.ref_trigger_vr = "HLT." + self.ref_trigger
+
+    def get_default_variables(self, cfg: od.Config):
+        trig = self.trigger[4:] if self.trigger.startswith("HLT.") else self.trigger
+        return cfg.x(f"analysis_triggers", dict()).get(trig, (None, None))[1]
 
     @classmethod
     def resolve_param_values(cls, params):
-        cls.tag_name = f"hlt_{params['trigger'].lower()}"
+        if not (trig := params.get("ref_trigger")):
+            return params
+        if not (config_inst := params.get("config_inst")):
+            return params
+        cls.tag_name = f"hlt_{trig.lower()}"
+        ref_trigger = params.get("ref_trigger")
+        if not ref_trigger:
+            ref_trigger = config_inst.x(f"analysis_triggers", dict()).get(trig, (None, None))[0]
+            assert ref_trigger is not None, "no default trigger specified in config.x.analysis_triggers"
+        params["ref_trigger"] = ref_trigger
         params = super().resolve_param_values(params)
         return params
 
@@ -169,7 +184,7 @@ class TriggerScaleFactors(TriggerScaleFactorsBase):
         import hist
         import numpy as np
         import correctionlib.convert
-        from singletop.util.Koopman_test import koopman_confint
+        from columnflow.tasks.cmsGhent.Koopman_test import koopman_confint
 
         bindim = [variable_inst.n_bins for variable_inst in self.nonaux_variable_insts]
 
