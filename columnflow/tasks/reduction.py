@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import functools
 from collections import OrderedDict, defaultdict
+import os
 
 import law
 import luigi
@@ -21,6 +22,7 @@ from columnflow.tasks.framework.remote import RemoteWorkflow
 from columnflow.tasks.external import GetDatasetLFNs
 from columnflow.tasks.selection import CalibrateEvents, SelectEvents
 from columnflow.util import maybe_import, ensure_proxy, dev_sandbox, safe_div
+from columnflow.columnar_util import set_ak_column
 
 ak = maybe_import("awkward")
 
@@ -200,6 +202,10 @@ class ReduceEvents(
 
                 # build the event mask
                 if self.selector_steps and self.selector_steps != self.selector_steps_all:
+
+                    if "json" not in sel.steps.fields:
+                        sel = set_ak_column(sel, "steps.json", ak.ones_like(events.event, dtype=bool))
+
                     # check if all steps are present
                     missing_steps = set(self.selector_steps) - set(sel.steps.fields)
                     if missing_steps:
@@ -486,6 +492,15 @@ class MergeReducedEvents(
 
     def merge(self, inputs, output):
         inputs = [inp["events"] for inp in inputs]
+        # for inp in inputs:
+        #     if not os.path.exists(inp.path):
+        #         continue
+        #     try:
+        #         arr = ak.from_parquet(inp.path)
+        #     except:
+        #         print("remove", inp.path)
+        #         os.remove(inp.path)
+        # return
         law.pyarrow.merge_parquet_task(
             self, inputs, output["events"], writer_opts=self.get_parquet_writer_opts(),
         )

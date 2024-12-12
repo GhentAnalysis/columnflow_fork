@@ -1931,6 +1931,7 @@ class ArrayFunction(Derivable):
             for route in self._get_columns(io_flag=io_flag, dependencies=False)
             if not route.has_tag("optional")
         ]
+        # if "process_id" in [route.column for route in routes]: breakpoint()
 
         # get missing columns
         missing = {
@@ -1940,6 +1941,8 @@ class ArrayFunction(Derivable):
         }
 
         # nothing to do when no column is missing
+        #if "mbj" in self.cls_name or "j1" in self.cls_name:
+        #    breakpoint()
         if not missing:
             return
 
@@ -3502,6 +3505,7 @@ class ChunkedIOHandler(object):
         chunk_positions = [
             self.create_chunk_position(self.n_entries, self.chunk_size, chunk_index)
             for chunk_index in range(max(self.n_chunks, 1))
+            # for chunk_index in range(1)
         ]
 
         # fill the list of tasks the pool has to work through

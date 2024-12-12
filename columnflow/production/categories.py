@@ -38,6 +38,7 @@ def category_ids(
     Assigns each event an array of category ids.
     """
     category_ids = []
+    mask_cash = {}
 
     for cat_inst, categorizers in self.categorizer_map.items():
         # start with a true mask
@@ -45,8 +46,9 @@ def category_ids(
 
         # loop through selectors
         for categorizer in categorizers:
-            events, mask = self[categorizer](events, **kwargs)
-            cat_mask = cat_mask & mask
+            if categorizer not in mask_cash:
+                events, mask_cash[categorizer] = self[categorizer](events, **kwargs)
+            cat_mask = cat_mask & mask_cash[categorizer]
 
         # covert to nullable array with the category ids or none, then apply ak.singletons
         ids = ak.where(cat_mask, np.float64(cat_inst.id), np.float64(np.nan))

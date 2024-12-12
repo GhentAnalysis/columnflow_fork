@@ -11,10 +11,12 @@ __all__ = ["load"]
 import os
 import json
 import pickle
+import h5py
 
 import awkward as ak
 import coffea.nanoevents
 import uproot
+import numpy as np
 
 
 def _load_json(fname: str):
@@ -33,11 +35,18 @@ def _load_parquet(fname: str):
 
 def _load_nano_root(fname: str):
     source = uproot.open(fname)
-    return coffea.nanoevents.NanoEventsFactory.from_root(
-        source,
-        runtime_cache=None,
-        persistent_cache=None,
-    ).events()
+    try:
+        return coffea.nanoevents.NanoEventsFactory.from_root(
+            source,
+            runtime_cache=None,
+            persistent_cache=None,
+        ).events()
+    except:
+        return uproot.open(fname)
+
+def _load_h5(fname: str):
+    with h5py.File('data.h5', 'r') as fobj:
+        return fobj
 
 
 def load(fname: str):
@@ -53,6 +62,8 @@ def load(fname: str):
         return _load_nano_root(fname)
     if ext == ".json":
         return _load_json(fname)
+    if ext in [".h5", ".hdf5"]:
+        return _load_h5(fname)
     raise NotImplementedError(f"no loader implemented for extension '{ext}'")
 
 
@@ -71,7 +82,7 @@ if __name__ == "__main__":
         ),
     )
 
-    ap.add_argument("files", metavar="FILE", nargs="+", help="one or more supported files")
+    ap.add_argument("files", metavar="FILE", nargs="*", help="one or more supported files")
 
     args = ap.parse_args()
 

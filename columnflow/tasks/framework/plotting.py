@@ -466,12 +466,9 @@ class ProcessPlotSettingMixin(
         return params
 
 
-class VariablePlotSettingMixin(
-        VariablesMixin,
-        PlotBase,
-):
+class VariableSettingMixin():
     """
-    Mixin class for tasks creating plots for multiple variables.
+    Mixin class for applying variable settings
     """
 
     variable_settings = MultiSettingsParameter(
@@ -511,6 +508,17 @@ class VariablePlotSettingMixin(
             params["variable_settings"] = settings
 
         return params
+
+
+
+class VariablePlotSettingMixin(
+    VariableSettingMixin,
+    VariablesMixin,
+    PlotBase,
+):
+    """
+    Mixin class for tasks creating plots for multiple variables.
+    """
 
     def get_plot_parameters(self) -> DotDict:
         # convert parameters to usable values during plotting

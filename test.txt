@@ -1,0 +1,93 @@
+INFO: columnflow.selection - mask m1 is of mixed type, but does not contain Nones: converting to pure type.
+INFO: columnflow.selection - mask m2 contains both numeric binaries and booleans. Converted to boolean.
+INFO: columnflow.selection - mask m3 contains both numeric binaries and booleans. Converted to boolean.
+INFO: columnflow.selection - mask m6 is of mixed type, but does not contain Nones: converting to pure type.
+INFO: columnflow.selection - converting 1d object mask m6 to 2d
+INFO: columnflow.selection - mask m0 contains both numeric binaries and booleans. Converted to boolean.
+INFO: columnflow.selection - mask event is of mixed type, but does not contain Nones: converting to pure type.
+INFO: columnflow.selection - mask event contains both numeric binaries and booleans. Converted to boolean.
+INFO: columnflow.selection - mask event is of mixed type, but does not contain Nones: converting to pure type.
+INFO: columnflow.selection - mask s0 is of mixed type, but does not contain Nones: converting to pure type.
+INFO: columnflow.selection - mask s2 contains both numeric binaries and booleans. Converted to boolean.
+INFO: columnflow.selection - mask s3 is of mixed type, but does not contain Nones: converting to pure type.
+
+[95mcorrect object mask tests:
+[0m[[2, 3], [1]] [92m [[2, 3], [1]]
+[0m[94m 2 * var * int64 [92m 2 * var * int64
+[0m[[2], [1]] [92m [[2], [1]]
+[0m[94m 2 * var * ?int64 [92m 2 * var * int64
+[0m[[1], [True, False]] [92m [[True], [True, False]]
+[0m[94m 2 * var * union[int64, bool] [92m 2 * var * bool
+[0m[[1, 0], [True, False]] [92m [[True, False], [True, False]]
+[0m[94m 2 * var * union[?int64, ?bool] [92m 2 * var * bool
+[0m[[ True False]] [92m [[True, False]]
+[0m[94m 1 * 2 * bool [92m 1 * 2 * bool
+[0m[[2 3]] [92m [[2, 3]]
+[0m[94m 1 * 2 * int64 [92m 1 * var * int64
+[0m[2, 1] [92m [[2], [1]]
+[0m[94m 2 * ?int64 [92m 2 * var * int64
+[0m[[1, 0], [1, 1]] [92m [[1, 0], [1, 1]]
+[0m[94m 2 * var * int64 [92m 2 * var * int64
+[0m
+[95mwrong object mask tests:
+[0m[[2, 3], [1, True]] [91m mask Muon0 contains booleans and non-binary values [[2, 3], []]
+[0m[[1, 2], None] [91m Muon1 contains option[var * int64]. Some rows might be None
+[0m[[True, False], [None]] [91m mask Muon2 contains None values
+[0m[[True, False], None] [91m Muon3 contains option[var * bool]. Some rows might be None
+[0m[[True, False]] [91m Muon4 contains option[var * bool]. Some rows might be None
+[0m[True, False] [91m 1d mask Muon5 does not contain integers but bool
+[0m[1, 2, True] [91m 1d object mask Muon6 has not integers, but union[int64, bool]
+[0m
+[95mpotentially problematic object mask tests:
+[0m[[1, 0], [1, 1]] [92m [[True, False], [True, True]]
+[0m[94m 2 * var * union[int64, bool] [92m 2 * var * bool
+[0mmask is of union type but in fact only contains integer 0's and 1's. This will lead to conversion to True and False. But seems unlikely to happen.
+[0m
+[95mcorrect event mask tests:
+[0m[1, 0, 0] [92m [True, False, False]
+[0m[94m 3 * ?int64 [92m 3 * bool
+[0m[1, 0, 0, 1] [92m [True, False, False, True]
+[0m[94m 4 * int64 [92m 4 * bool
+[0m[0, True, 0, False] [92m [False, True, False, False]
+[0m[94m 4 * union[int64, bool] [92m 4 * bool
+[0m[True, True] [92m [True, True]
+[0m[94m 2 * ?bool [92m 2 * bool
+[0m[True, True, False] [92m [True, True, False]
+[0m[94m 3 * bool [92m 3 * bool
+[0m[ True  True False] [92m [True, True, False]
+[0m[94m 3 * bool [92m 3 * bool
+[0m
+[95mwrong event mask tests:
+[0m[True, True, None] [91m mask event contains None values
+[0m[[True, False], [True]] [91m event array has illegal dimension 2
+[0m[[True, False]] [91m event array has illegal dimension 2
+[0m[[True], [False]] [91m event array has illegal dimension 2
+[0m[[ True]
+ [False]] [91m event array has illegal dimension 2
+[0m[0, 2, True] [91m mask event contains booleans and non-binary values [2]
+[0m[False, 2, True] [91m mask event contains booleans and non-binary values [2]
+[0m
+[95mcorrect step mask tests:
+[0m[1, 0, 0] [92m [True, False, False]
+[0m[94m 3 * ?int64 [92m 3 * bool
+[0m[1, 0, 0, 1] [92m [True, False, False, True]
+[0m[94m 4 * int64 [92m 4 * bool
+[0m[0, True, 0, False] [92m [False, True, False, False]
+[0m[94m 4 * union[int64, bool] [92m 4 * bool
+[0m[True, True] [92m [True, True]
+[0m[94m 2 * ?bool [92m 2 * bool
+[0m[True, True, False] [92m [True, True, False]
+[0m[94m 3 * bool [92m 3 * bool
+[0m[ True  True False] [92m [True, True, False]
+[0m[94m 3 * bool [92m 3 * bool
+[0m
+[95mwrong step mask tests:
+[0m[True, True, None] [91m mask s contains None values
+[0m[[True, False], [True]] [91m s array has illegal dimension 2
+[0m[[True, False]] [91m s array has illegal dimension 2
+[0m[[True], [False]] [91m s array has illegal dimension 2
+[0m[[ True]
+ [False]] [91m s array has illegal dimension 2
+[0m[0, 2, True] [91m mask s contains booleans and non-binary values [2]
+[0m[False, 2, True] [91m mask s contains booleans and non-binary values [2]
+[0m

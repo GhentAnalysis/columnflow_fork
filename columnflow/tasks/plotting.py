@@ -98,6 +98,8 @@ class PlotVariablesBase(
         ]
         category_inst = self.config_inst.get_category(self.branch_data.category)
         leaf_category_insts = category_inst.get_leaf_categories() or [category_inst]
+        for cat in leaf_category_insts:
+            print(cat.selection)
         sub_process_insts = {
             process_inst: [sub for sub, _, _ in process_inst.walk_processes(include_self=True)]
             for process_inst in process_insts
@@ -215,7 +217,7 @@ class PlotVariablesBaseSingleShift(
 
         # no need to require merged histograms since each branch already requires them as a workflow
         # if self.workflow == "local":
-        #     reqs.pop("merged_hists", None)
+        #    reqs.pop("merged_hists", None)
 
         return reqs
 

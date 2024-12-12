@@ -14,12 +14,15 @@ from columnflow.tasks.framework.mixins import (
 )
 from columnflow.tasks.framework.remote import RemoteWorkflow
 from columnflow.tasks.histograms import MergeHistograms, MergeShiftedHistograms
+from columnflow.tasks.framework.plotting import VariableSettingMixin
 from columnflow.util import dev_sandbox
 from columnflow.config_util import get_datasets_from_process
+from columnflow.plotting.plot_util import apply_variable_settings
 
 
 class CreateDatacards(
     InferenceModelMixin,
+    VariableSettingMixin,
     MLModelsMixin,
     ProducersMixin,
     SelectorStepsMixin,
@@ -187,6 +190,9 @@ class CreateDatacards(
         # histogram data per process
         hists = OrderedDict()
 
+        # for applying variable settings
+        _apply_variable_settings = lambda hs: apply_variable_settings(hs, [variable_inst], self.variable_settings)
+
         with self.publish_step(f"extracting {variable_inst.name} in {category_inst.name} ..."):
             for proc_obj_name, inp in inputs.items():
                 if proc_obj_name == "data":
@@ -247,6 +253,9 @@ class CreateDatacards(
                     {"shift": hist.loc(nominal_shift_inst.id)}
                 ]
 
+                # apply variable settings to nominal
+                hists[proc_obj_name] = _apply_variable_settings(hists[proc_obj_name])
+
                 # per shift
                 if proc_obj:
                     for param_obj in proc_obj.parameters:
@@ -260,6 +269,10 @@ class CreateDatacards(
                             hists[proc_obj_name][param_obj.name][d] = h_proc[
                                 {"shift": hist.loc(shift_inst.id)}
                             ]
+                        # apply variable settings to nominal
+                        hists[proc_obj_name][param_obj.name] = _apply_variable_settings(hists[proc_obj_name][param_obj.name])
+
+
 
             # forward objects to the datacard writer
             outputs = self.output()

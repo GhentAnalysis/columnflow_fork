@@ -1,0 +1,22 @@
+[0;49;35mcheck linting ...[0m
+bin/cf_inspect.py:19:1: F401 'numpy as np' imported but unused
+bin/cf_inspect.py:47:1: E302 expected 2 blank lines, found 1
+bin/cf_inspect.py:48:20: Q000 Single quotes found but double quotes preferred
+bin/cf_inspect.py:48:31: Q000 Single quotes found but double quotes preferred
+columnflow/columnar_util.py:1944:9: E265 block comment should start with '# '
+columnflow/plotting/plot_functions_2d.py:89:5: E303 too many blank lines (2)
+columnflow/tasks/cms/inference.py:273:121: E501 line too long (125 > 120 characters)
+columnflow/tasks/cms/inference.py:277:13: E303 too many blank lines (3)
+columnflow/tasks/cmsGhent/btagefficiency.py:6:1: F401 'itertools.product' imported but unused
+columnflow/tasks/cmsGhent/btagefficiency.py:10:76: C812 missing trailing comma
+columnflow/tasks/cmsGhent/btagefficiency.py:22:1: E302 expected 2 blank lines, found 1
+columnflow/tasks/cmsGhent/btagefficiency.py:53:5: E303 too many blank lines (2)
+columnflow/tasks/cmsGhent/btagefficiency.py:90:1: E303 too many blank lines (3)
+columnflow/tasks/cmsGhent/btagefficiency.py:155:18: E126 continuation line over-indented for hanging indent
+columnflow/tasks/cmsGhent/selection_hists.py:14:76: C812 missing trailing comma
+columnflow/tasks/cmsGhent/selection_hists.py:263:51: C812 missing trailing comma
+columnflow/tasks/cmsGhent/trigger_scale_factors.py:62:22: F541 f-string is missing placeholders
+columnflow/tasks/cmsGhent/trigger_scale_factors.py:73:41: F541 f-string is missing placeholders
+columnflow/tasks/framework/plotting.py:514:1: E303 too many blank lines (3)
+columnflow/tasks/reduction.py:12:1: F401 'os' imported but unused
+columnflow/weight/all_weights.py:53:13: F841 local variable 'c_wgt' is assigned to but never used
