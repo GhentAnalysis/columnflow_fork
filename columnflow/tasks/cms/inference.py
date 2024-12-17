@@ -266,9 +266,13 @@ class CreateDatacards(
                         hists[proc_obj_name][param_obj.name] = {}
                         for d in ["up", "down"]:
                             shift_inst = self.config_inst.get_shift(f"{param_obj.config_shift_source}_{d}")
-                            hists[proc_obj_name][param_obj.name][d] = h_proc[
-                                {"shift": hist.loc(shift_inst.id)}
-                            ]
+                            try:
+                                hists[proc_obj_name][param_obj.name][d] = h_proc[
+                                    {"shift": hist.loc(shift_inst.id)}
+                                ]
+                            except:
+                                print(shift_inst, dataset_inst)
+                                return
                         # apply variable settings to nominal
                         hists[proc_obj_name][param_obj.name] = _apply_variable_settings(hists[proc_obj_name][param_obj.name])
 
