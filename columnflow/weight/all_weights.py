@@ -46,13 +46,11 @@ def all_weights(self: WeightProducer, events: ak.Array, **kwargs) -> ak.Array:
         # multiply weights from global config `event_weights` aux entry
         for column in self.config_inst.x.event_weights:
             print(column)
-            c_wgt = Route(column).apply(events)
             weight = weight * Route(column).apply(events)
 
         # multiply weights from dataset-specific `event_weights` aux entry
         for column in self.dataset_inst.x("event_weights", []):
             print(column)
-            c_wgt = Route(column).apply(events)
             if has_ak_column(events, column):
                 weight = weight * Route(column).apply(events)
             else:
