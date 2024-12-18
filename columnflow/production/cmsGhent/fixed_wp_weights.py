@@ -464,8 +464,6 @@ def fixed_wp_efficiency_hists(
 
         hists[f"{self.tag_name}_efficiencies"] = histogram.Weight()
         hists[f"{self.tag_name}_efficiencies"].name = f"{self.algorithm}({self.discriminator})"
-
-
     # fill histogram
     hists[f"{self.tag_name}_efficiencies"].fill(**fill_kwargs)
 

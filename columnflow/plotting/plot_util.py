@@ -254,8 +254,6 @@ def apply_variable_settings(
             for proc_inst, h in list(hists.items()):
                 h = h[{var_inst.name: slice(slice_0, slice_1)}]
                 hists[proc_inst] = h
-
-
         # overflow and underflow bins
         overflow = getattr(var_inst, "overflow", False) or var_inst.x("overflow", False)
         underflow = getattr(var_inst, "underflow", False) or var_inst.x("underflow", False)

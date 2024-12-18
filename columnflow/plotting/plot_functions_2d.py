@@ -84,6 +84,4 @@ def plot_2d(
 
     if skip_legend:
         del style_config["legend_cfg"]
-
-
     return make_plot_2d(plot_config, style_config)

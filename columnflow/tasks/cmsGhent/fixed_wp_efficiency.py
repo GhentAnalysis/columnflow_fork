@@ -317,7 +317,7 @@ class FixedWPEfficiencyBase(
                 # create a dummy category for plotting
                 cat = od.Category(
                     name=self.flav_name + wp,
-                    label=self.flavours[flav] + "\n" + "wp " + wp
+                    label=self.flavours[flav] + "\n" + "wp " + wp,
                 )
 
                 # custom styling:

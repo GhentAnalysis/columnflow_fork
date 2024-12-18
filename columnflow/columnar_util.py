@@ -1941,7 +1941,7 @@ class ArrayFunction(Derivable):
         }
 
         # nothing to do when no column is missing
-        #if "mbj" in self.cls_name or "j1" in self.cls_name:
+        # if "mbj" in self.cls_name or "j1" in self.cls_name:
         #    breakpoint()
         if not missing:
             return

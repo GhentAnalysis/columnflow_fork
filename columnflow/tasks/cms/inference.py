@@ -274,10 +274,9 @@ class CreateDatacards(
                                 print(shift_inst, dataset_inst)
                                 return
                         # apply variable settings to nominal
-                        hists[proc_obj_name][param_obj.name] = _apply_variable_settings(hists[proc_obj_name][param_obj.name])
-
-
-
+                        hists[proc_obj_name][param_obj.name] = _apply_variable_settings(
+                            hists[proc_obj_name][param_obj.name],
+                        )
             # forward objects to the datacard writer
             outputs = self.output()
             writer = DatacardWriter(self.inference_model_inst, {cat_obj.name: hists})

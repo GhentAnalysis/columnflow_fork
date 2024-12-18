@@ -510,7 +510,6 @@ class VariableSettingMixin():
         return params
 
 
-
 class VariablePlotSettingMixin(
     VariableSettingMixin,
     VariablesMixin,
