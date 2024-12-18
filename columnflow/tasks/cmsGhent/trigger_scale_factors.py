@@ -10,7 +10,7 @@ import luigi
 
 from columnflow.tasks.framework.base import Requirements
 from columnflow.tasks.framework.mixins import (
-    CalibratorsMixin, VariablesMixin, SelectorMixin, DatasetsProcessesMixin
+    CalibratorsMixin, VariablesMixin, SelectorMixin, DatasetsProcessesMixin,
 )
 from columnflow.tasks.framework.plotting import (
     PlotBase, PlotBase2D, PlotBase1D,
@@ -23,6 +23,7 @@ from columnflow.util import dev_sandbox, dict_add_strict, maybe_import
 
 np = maybe_import("numpy")
 hist = maybe_import("hist")
+
 
 class TriggerScaleFactorsBase(
     VariablesMixin,
@@ -98,7 +99,7 @@ class TriggerScaleFactorsBase(
 
 
 class TriggerDatasetsMixin(
-    DatasetsProcessesMixin
+    DatasetsProcessesMixin,
 ):
     @property
     def datasets_repr(self):
