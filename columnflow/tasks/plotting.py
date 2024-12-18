@@ -110,7 +110,6 @@ class PlotVariablesBase(
             for dataset, inp in self.input().items():
                 dataset_inst = self.config_inst.get_dataset(dataset)
                 h_in = inp["collection"][0]["hists"].targets[self.branch_data.variable].load(formatter="pickle")
-
                 # loop and extract one histogram per process
                 for process_inst in process_insts:
                     # skip when the dataset is already known to not contain any sub process
@@ -324,8 +323,8 @@ class PlotVariablesBaseMultiShifts(
         reqs = super().workflow_requires()
 
         # no need to require merged histograms since each branch already requires them as a workflow
-        if self.workflow == "local":
-            reqs.pop("merged_hists", None)
+        # if self.workflow == "local":
+        #     reqs.pop("merged_hists", None)
 
         return reqs
 
