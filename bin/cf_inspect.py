@@ -16,7 +16,7 @@ import h5py
 import awkward as ak
 import coffea.nanoevents
 import uproot
-import numpy as np
+import numpy as np  # noqa
 
 
 def _load_json(fname: str):
@@ -44,8 +44,9 @@ def _load_nano_root(fname: str):
     except:
         return uproot.open(fname)
 
+
 def _load_h5(fname: str):
-    with h5py.File('data.h5', 'r') as fobj:
+    with h5py.File("data.h5", "r") as fobj:
         return fobj
 
 
