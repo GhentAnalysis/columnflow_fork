@@ -28,10 +28,6 @@ If the columns are created further down the task tree, e.g. in ProduceColumns, t
 It should be mentioned that the parquet files for tasks after ProduceColumns are opened in the following order: first the parquet file from ReduceEvents, then the different parquet files from the different Producers called with the `--producers` argument in the same order as they are given on the command line.
 Therefore, in the case of several columns with the exact same name in different parquet files (e.g. a new column `Jet.pt` was created in some producer used in ProduceColumns after the creation of the reduced `Jet.pt` column in ReduceEvents), the tasks after ProduceColumns will open all the parquet file and overwrite the values in this column with the values from the last opened parquet file, according to the previously mentioned ordering.
 
-
-
-
-
 ## Tutorial 1: Gen-level plots of a single process
 This example will show how to make gen-level plots using the columnflow framework. The example uses a reduced monte carlo sample of $t\overline{t}$ dilepton production for the 2018UL campaign.
 
@@ -54,9 +50,3 @@ The columnflow framework uses the cutflow features to plot gen-level distributio
 3. The same can be done on the full dataset with all files by using config `c18` instead of `l18`. Running over all files locally will take a long time and it is recommended to use `htcondor` to submit jobs that run over all files in parallel. This can be done by including `--workflow htcondor`, for more options on running with `htcondor`, check the `--help` argument or documentation.
 
 ## Tutorial 2: n-jets distribution of multiple processes
-
-
-
-
-
-
