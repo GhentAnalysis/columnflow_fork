@@ -448,7 +448,15 @@ class AnalysisTask(BaseTask, law.SandboxTask):
                 lookup.extend(list(object_groups[name]))
             elif accept_patterns:
                 # must eventually be a pattern, perform an object traversal
-                for _name in sorted(get_all_object_names()):
+                name_parts = name.split("-")
+                # match all name parts
+                matches = [[] for _ in name_parts]
+                for i, n in enumerate(name_parts):
+                    for _name in sorted(get_all_object_names()):
+                        if law.util.multi_match(_name, n):
+                            matches[i].append(_name)
+                for matches_pair in itertools.product(*matches):
+                    object_names.append("-".join(matches_pair))
                     if law.util.multi_match(_name, name):
                         object_names.append(_name)
 
