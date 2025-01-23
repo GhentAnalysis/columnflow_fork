@@ -40,6 +40,7 @@ class Requirements(DotDict):
         instances and additional keyword arguments ``kwargs``, which are
         added.
         """
+
     def __init__(self, *others, **kwargs):
 
         super().__init__()
@@ -447,7 +448,6 @@ class AnalysisTask(BaseTask, law.SandboxTask):
                 lookup.extend(list(object_groups[name]))
             elif accept_patterns:
                 # must eventually be a pattern, perform an object traversal
-                # make this also viable for multi-dim variables for plotting/histograms
                 name_parts = name.split("-")
                 # match all name parts
                 matches = [[] for _ in name_parts]
@@ -894,7 +894,7 @@ class AnalysisTask(BaseTask, law.SandboxTask):
                 else law.MirroredDirectoryTarget
             )
             return mirrored_target_cls(
-                path=local_target.path,
+                path=local_target.abspath,
                 remote_target=wlcg_target,
                 local_target=local_target,
             )
@@ -1397,7 +1397,7 @@ class CommandTask(AnalysisTask):
         if "cwd" not in kwargs and self.run_command_in_tmp:
             tmp_dir = law.LocalDirectoryTarget(is_tmp=True)
             tmp_dir.touch()
-            kwargs["cwd"] = tmp_dir.path
+            kwargs["cwd"] = tmp_dir.abspath
         self.publish_message("cwd: {}".format(kwargs.get("cwd", os.getcwd())))
 
         # call it
