@@ -85,7 +85,6 @@ class PlotVariablesCatsPerProcessBase(PlotVariablesBaseSingleShift):
                         if s.id in h.axes["shift"]
                     ],
                 }]
-                h = h[{"process": sum}]
 
                 # axis selections
                 for c, lcs in zip(category_insts, category_insts_leafs):
@@ -111,10 +110,17 @@ class PlotVariablesCatsPerProcessBase(PlotVariablesBaseSingleShift):
                     "  - selected --processes did not match any value on the process axis of the input histogram",
                 )
 
+            # update histograms using custom hooks
+            hists = self.invoke_hist_hooks(process_hists)
+
+            for cat in hists:
+                if "process" in hists[cat].axes.name:
+                    hists[cat] = hists[cat][{"process": sum}]
+
             # call the plot function
             fig, _ = self.call_plot_func(
                 self.plot_function,
-                hists=process_hists,
+                hists=hists,
                 config_inst=self.config_inst,
                 category_inst=process_inst.copy_shallow(),
                 variable_insts=[var_inst.copy_shallow() for var_inst in variable_insts],
