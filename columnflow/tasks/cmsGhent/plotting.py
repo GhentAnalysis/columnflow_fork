@@ -126,7 +126,7 @@ class PlotVariablesCatsPerProcessBase(PlotVariablesBaseSingleShift):
                 variable_insts=[var_inst.copy_shallow() for var_inst in variable_insts],
                 style_config={
                     "legend_cfg": {"title": process_inst.label},
-                    "rax_cfg": {"ylabel": "Category / " + self.initial},
+                    "rax_cfg": {"ylabel": "Category / " + self.initial, "ylim": (.75, 1.25)},
                 },
                 initial=self.initial,
                 **self.get_plot_parameters(),
