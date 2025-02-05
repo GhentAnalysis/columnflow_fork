@@ -54,7 +54,7 @@ class PlotVariablesCatsPerProcessBase(PlotVariablesBaseSingleShift):
             for var_name in variable_tuple
         ]
         category_insts = [self.config_inst.get_category(c) for c in self.branch_data.categories]
-        category_insts_leafs = [c.get_leaf_categories() for c in category_insts]
+        category_insts_leafs = [c.get_leaf_categories() or [c] for c in category_insts]
         process_inst = self.config_inst.get_process(self.branch_data.process)
         sub_process_insts = [sub for sub, _, _ in process_inst.walk_processes(include_self=True)]
 
