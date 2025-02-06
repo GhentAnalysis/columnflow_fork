@@ -95,7 +95,7 @@ def pdf_weights(
         frac = ak.sum(bad_mask) / len(events) * 100
         logger.warning(
             "the number of LHEPdfWeights is expected to be 101 or 103, but also found values "
-            f"'{bad_values}' in dataset {self.dataset_inst.name}, will set pdf weights to 1 for "
+            f"'{bad_values}' in dataset {self.dataset_inst.name}, will set pdf weights to 0 for "
             f"these events ({frac:.2f}%)",
         )
 
@@ -138,6 +138,33 @@ def pdf_weights(
             events = set_ak_column_f32(events, "pdf_weight", ak.where(outlier_mask, 0, events.pdf_weight))
             events = set_ak_column_f32(events, "pdf_weight_up", ak.where(outlier_mask, 0, events.pdf_weight_up))
             events = set_ak_column_f32(events, "pdf_weight_down", ak.where(outlier_mask, 0, events.pdf_weight_down))
+
+            msg += "; the nominal/up/down pdf_weight columns have been set to 0 for these events"
+        elif outlier_action == "raise":
+            raise Exception(msg)
+
+        msg_func = {
+            "none": lambda msg: None,
+            "info": logger.info,
+            "warning": logger.warning,
+            "debug": logger.debug,
+        }[outlier_log_mode]
+        msg_func(msg)
+
+    if ak.any(bad_mask) & ~ak.all(bad_mask):
+        # catch events where the number of weights is unexpected
+        occurances = ak.sum(bad_mask)
+        frac = occurances / len(stddev) * 100
+        msg = (
+            f"in dataset {self.dataset_inst.name}, there are {occurances} ({frac:.2f}%) "
+            "events where the number of (non Nan) weights is unexpected"
+        )
+
+        if outlier_action == "remove":
+            # set all pdf weights to 0 when the *outlier_threshold* is passed
+            events = set_ak_column_f32(events, "pdf_weight", ak.where(bad_mask, 0, events.pdf_weight))
+            events = set_ak_column_f32(events, "pdf_weight_up", ak.where(bad_mask, 0, events.pdf_weight_up))
+            events = set_ak_column_f32(events, "pdf_weight_down", ak.where(bad_mask, 0, events.pdf_weight_down))
 
             msg += "; the nominal/up/down pdf_weight columns have been set to 0 for these events"
         elif outlier_action == "raise":

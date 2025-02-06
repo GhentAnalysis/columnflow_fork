@@ -86,7 +86,7 @@ def murmuf_weights(self: Producer, events: ak.Array, **kwargs) -> ak.Array:
     Resources:
         - https://cms-nanoaod-integration.web.cern.ch/integration/master/mc94X_doc.html
     """
-    n_weights = ak.num(ak.drop_none(ak.nan_to_none(events.LHEScaleWeight)), axis=1)
+    n_weights = ak.num(events.LHEScaleWeight, axis=1)
 
     # in rare cases, some events might have 0 weights
     non_zero_mask = n_weights > 0
@@ -153,6 +153,21 @@ def murmuf_weights(self: Producer, events: ak.Array, **kwargs) -> ak.Array:
         weights = np.ones(len(events), dtype=np.float32)
         weights[non_zero_mask] = murf_weights[:, indices[index_name]]
         events = set_ak_column_f32(events, column, weights)
+
+    # check if LHEScaleWeight is Nan in specific events and set weights to 0
+    has_nan_values = ak.all(ak.is_none(ak.nan_to_none(events.LHEScaleWeight), axis=-1), axis=-1)
+    if ak.any(has_nan_values):
+        logger.warning(
+            f"All values of LHEScaleWeights are Nan in {ak.sum(has_nan_values)} events"
+            r"Saving zeros for '{murmuf,mur,muf}_weight' of these events",
+        )
+        for postfix in ["", "_up", "_down"]:
+            events = set_ak_column_f32(events, f"murmuf_weight{postfix}", ak.where(
+                has_nan_values, 0, events[f"murmuf_weight{postfix}"]))
+            events = set_ak_column_f32(events, f"mur_weight{postfix}", ak.where(
+                has_nan_values, 0, events[f"mur_weight{postfix}"]))
+            events = set_ak_column_f32(events, f"muf_weight{postfix}", ak.where(
+                has_nan_values, 0, events[f"muf_weight{postfix}"]))
 
     return events
 
@@ -229,6 +244,21 @@ def murmuf_envelope_weights(self: Producer, events: ak.Array, **kwargs) -> ak.Ar
     events = set_ak_column_f32(events, "murmuf_envelope_weight", ones)
     events = set_ak_column_f32(events, "murmuf_envelope_weight_down", ak.min(murf_weights, axis=1))
     events = set_ak_column_f32(events, "murmuf_envelope_weight_up", ak.max(murf_weights, axis=1))
+
+    # check if LHEScaleWeight is Nan in specific events and set weights to 0
+    has_nan_values = ak.all(ak.is_none(ak.nan_to_none(events.LHEScaleWeight), axis=-1), axis=-1)
+    if ak.any(has_nan_values):
+        logger.warning(
+            f"All values of LHEScaleWeights are Nan in {ak.sum(has_nan_values)} events"
+            r"Saving zeros for '{murmuf,mur,muf}_weight' of these events",
+        )
+        for postfix in ["", "_up", "_down"]:
+            events = set_ak_column_f32(events, "murmuf_envelope_weight", ak.where(
+                has_nan_values, 0, events.murmuf_envelope_weight))
+            events = set_ak_column_f32(events, "murmuf_envelope_weight_down", ak.where(
+                has_nan_values, 0, events.murmuf_envelope_weight_down))
+            events = set_ak_column_f32(events, "murmuf_envelope_weight_up", ak.where(
+                has_nan_values, 0, events.murmuf_envelope_weight_up))
 
     return events
 
