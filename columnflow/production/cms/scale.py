@@ -86,7 +86,7 @@ def murmuf_weights(self: Producer, events: ak.Array, **kwargs) -> ak.Array:
     Resources:
         - https://cms-nanoaod-integration.web.cern.ch/integration/master/mc94X_doc.html
     """
-    n_weights = ak.num(events.LHEScaleWeight, axis=1)
+    n_weights = ak.num(ak.drop_none(ak.nan_to_none(events.LHEScaleWeight)), axis=1)
 
     # in rare cases, some events might have 0 weights
     non_zero_mask = n_weights > 0
@@ -177,7 +177,9 @@ def murmuf_envelope_weights(self: Producer, events: ak.Array, **kwargs) -> ak.Ar
     Resources:
         - https://cms-nanoaod-integration.web.cern.ch/integration/master/mc94X_doc.html
     """
-    n_weights = ak.num(events.LHEScaleWeight, axis=1)
+
+    # remove nan values in LHEScaleWeight columns for checking number of available weights
+    n_weights = ak.num(ak.drop_none(ak.nan_to_none(events.LHEScaleWeight)), axis=1)
 
     # in rare cases, some events might have 0 weights
     non_zero_mask = n_weights > 0

@@ -78,7 +78,7 @@ def pdf_weights(
         )
 
     # check for the correct amount of weights
-    n_weights = ak.num(events.LHEPdfWeight, axis=1)
+    n_weights = ak.num(ak.drop_none(ak.nan_to_none(events.LHEPdfWeight)), axis=1)
     bad_mask = (n_weights != 101) & (n_weights != 103)
 
     # write ones in case there are no weights at all
