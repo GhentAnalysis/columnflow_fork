@@ -104,6 +104,7 @@ def get_br_from_inclusive_dataset(
                 (is_leaf and str(child_proc.id) not in sum_mc_weight_per_process) or
                 (not is_leaf and child_proc.id not in proc_ds_map)
             ):
+
                 continue
 
             proc_ids = [child_proc.id] if (is_leaf or child_in_weight_procs) else [
@@ -150,7 +151,6 @@ def get_br_from_inclusive_dataset(
     # fill all branching ratios
     for proc_id, brs in br[inclusive_proc.id].items():
         multiply_branching_ratios(proc_id, brs)
-
     return branching_ratios
 
 
