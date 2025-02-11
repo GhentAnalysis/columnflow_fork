@@ -38,6 +38,7 @@ logger = law.logger.get_logger(__name__)
 
 label_options = {
     "wip": "Work in progress",
+    "int": "Internal",
     "pre": "Preliminary",
     "pw": "Private work (CMS data/simulation)",
     "pwip": "Private work in progress (CMS)",
@@ -877,7 +878,7 @@ def prepare_style_config_2d(
     if cms_label != "skip":
         style_config["cms_label_cfg"] = {
             # "ax": ax,  # need to add ax later !!
-            "lumi": 0.001 * config_inst.x.luminosity.get("nominal"),  # pb -> fb
+            "lumi": round(0.001 * config_inst.x.luminosity.get("nominal"), 2),  # pb -> fb
             "llabel": label_options.get(cms_label, cms_label),
             "fontsize": 22,
             "data": False,

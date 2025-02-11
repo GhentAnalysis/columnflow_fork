@@ -1,7 +1,7 @@
 # coding: utf-8
 
 """
-Jet energy corrections and jet resolution smearing.
+Jet energy corrections and jet resolution smearing adaptable to PuppiMET.
 """
 
 import functools
@@ -161,6 +161,7 @@ def get_jec_config_default(self) -> DotDict:
     uncertainty_sources=None,
     # toggle for propagation to MET
     propagate_met=True,
+    met_attr="MET",
     # function to determine the correction file
     get_jec_file=get_jec_file_default,
     # function to determine the jec configuration dict
@@ -308,6 +309,7 @@ def jec(
 
     # nominal met propagation
     if self.propagate_met:
+        rawmet = getattr(events, f"Raw{self.met_attr}")
         # get pt and phi of all jets after correcting
         jetsum = events.Jet[met_prop_mask].sum(axis=1)
         jetsum_pt_all_levels = jetsum.pt
@@ -320,11 +322,12 @@ def jec(
             jetsum_phi_subset_type1_met,
             jetsum_pt_all_levels,
             jetsum_phi_all_levels,
-            events.RawMET.pt,
-            events.RawMET.phi,
+            rawmet.pt,
+            rawmet.phi,
         )
-        events = set_ak_column_f32(events, "MET.pt", met_pt)
-        events = set_ak_column_f32(events, "MET.phi", met_phi)
+
+        events = set_ak_column_f32(events, f"{self.met_attr}.pt", met_pt)
+        events = set_ak_column_f32(events, f"{self.met_attr}.phi", met_phi)
 
     # variable naming conventions
     variable_map = {
@@ -364,10 +367,10 @@ def jec(
                 met_pt,
                 met_phi,
             )
-            events = set_ak_column_f32(events, f"MET.pt_jec_{name}_up", met_pt_up)
-            events = set_ak_column_f32(events, f"MET.pt_jec_{name}_down", met_pt_down)
-            events = set_ak_column_f32(events, f"MET.phi_jec_{name}_up", met_phi_up)
-            events = set_ak_column_f32(events, f"MET.phi_jec_{name}_down", met_phi_down)
+            events = set_ak_column_f32(events, f"{self.met_attr}.pt_jec_{name}_up", met_pt_up)
+            events = set_ak_column_f32(events, f"{self.met_attr}.pt_jec_{name}_down", met_pt_down)
+            events = set_ak_column_f32(events, f"{self.met_attr}.phi_jec_{name}_up", met_phi_up)
+            events = set_ak_column_f32(events, f"{self.met_attr}.phi_jec_{name}_down", met_phi_down)
 
     return events
 
@@ -390,12 +393,12 @@ def jec_init(self: Calibrator) -> None:
 
     # add MET variables
     if self.propagate_met:
-        self.uses |= {"RawMET.pt", "RawMET.phi"}
-        self.produces |= {"MET.pt", "MET.phi"}
+        self.uses |= {f"Raw{self.met_attr}.pt", f"Raw{self.met_attr}.phi"}
+        self.produces |= {f"{self.met_attr}.pt", f"{self.met_attr}.phi"}
 
         # add shifted MET variables
         self.produces |= {
-            f"MET.{shifted_var}_jec_{junc_name}_{junc_dir}"
+            f"{self.met_attr}.{shifted_var}_jec_{junc_name}_{junc_dir}"
             for shifted_var in ("pt", "phi")
             for junc_name in sources
             for junc_dir in ("up", "down")
@@ -552,18 +555,16 @@ def get_jer_config(self) -> DotDict:
         optional("Rho.fixedGridRhoFastjetAll"),
         optional("fixedGridRhoFastjetAll"),
         "GenJet.pt", "GenJet.eta", "GenJet.phi",
-        "MET.pt", "MET.phi",
         attach_coffea_behavior,
     },
     produces={
         "Jet.pt", "Jet.mass",
         "Jet.pt_unsmeared", "Jet.mass_unsmeared",
         "Jet.pt_jer_up", "Jet.pt_jer_down", "Jet.mass_jer_up", "Jet.mass_jer_down",
-        "MET.pt", "MET.phi",
-        "MET.pt_jer_up", "MET.pt_jer_down", "MET.phi_jer_up", "MET.phi_jer_down",
     },
     # toggle for propagation to MET
     propagate_met=True,
+    met_attr="MET",
     # only run on mc
     mc_only=True,
     # function to determine the correction file
@@ -722,9 +723,10 @@ def jer(self: Calibrator, events: ak.Array, **kwargs) -> ak.Array:
 
     # met propagation
     if self.propagate_met:
+        met = getattr(events, self.met_attr)
         # save unsmeared quantities
-        events = set_ak_column_f32(events, "MET.pt_unsmeared", events.MET.pt)
-        events = set_ak_column_f32(events, "MET.phi_unsmeared", events.MET.phi)
+        events = set_ak_column_f32(events, f"{self.met_attr}.pt_unsmeared", met.pt)
+        events = set_ak_column_f32(events, f"{self.met_attr}.phi_unsmeared", met.phi)
 
         # get pt and phi of all jets after correcting
         jetsum = events.Jet.sum(axis=1)
@@ -737,11 +739,11 @@ def jer(self: Calibrator, events: ak.Array, **kwargs) -> ak.Array:
             jetsum_phi_before,
             jetsum_pt_after,
             jetsum_phi_after,
-            events.MET.pt,
-            events.MET.phi,
+            met.pt,
+            met.phi,
         )
-        events = set_ak_column_f32(events, "MET.pt", met_pt)
-        events = set_ak_column_f32(events, "MET.phi", met_phi)
+        events = set_ak_column_f32(events, f"{self.met_attr}.pt", met_pt)
+        events = set_ak_column_f32(events, f"{self.met_attr}.phi", met_phi)
 
         # syst variations on top of corrected MET
         met_pt_up, met_phi_up = propagate_met(
@@ -760,10 +762,10 @@ def jer(self: Calibrator, events: ak.Array, **kwargs) -> ak.Array:
             met_pt,
             met_phi,
         )
-        events = set_ak_column_f32(events, "MET.pt_jer_up", met_pt_up)
-        events = set_ak_column_f32(events, "MET.pt_jer_down", met_pt_down)
-        events = set_ak_column_f32(events, "MET.phi_jer_up", met_phi_up)
-        events = set_ak_column_f32(events, "MET.phi_jer_down", met_phi_down)
+        events = set_ak_column_f32(events, f"{self.met_attr}.pt_jer_up", met_pt_up)
+        events = set_ak_column_f32(events, f"{self.met_attr}.pt_jer_down", met_pt_down)
+        events = set_ak_column_f32(events, f"{self.met_attr}.phi_jer_up", met_phi_up)
+        events = set_ak_column_f32(events, f"{self.met_attr}.phi_jer_down", met_phi_down)
 
     return events
 
@@ -774,11 +776,13 @@ def jer_init(self: Calibrator) -> None:
         return
 
     self.uses |= {
-        "MET.pt", "MET.phi",
+        f"{self.met_attr}.pt", f"{self.met_attr}.phi",
     }
     self.produces |= {
-        "MET.pt", "MET.phi", "MET.pt_jer_up", "MET.pt_jer_down", "MET.phi_jer_up",
-        "MET.phi_jer_down", "MET.pt_unsmeared", "MET.phi_unsmeared",
+        f"{self.met_attr}.pt", f"{self.met_attr}.phi",
+        f"{self.met_attr}.pt_jer_up", f"{self.met_attr}.pt_jer_down",
+        f"{self.met_attr}.phi_jer_up", f"{self.met_attr}.phi_jer_down",
+        f"{self.met_attr}.pt_unsmeared", f"{self.met_attr}.phi_unsmeared",
     }
 
 
@@ -854,6 +858,7 @@ def jer_setup(self: Calibrator, reqs: dict, inputs: dict, reader_targets: Insert
     produces={jec, jer},
     # toggle for propagation to MET
     propagate_met=None,
+    met_attr=None,
     # functions to determine configs and files
     get_jec_file=None,
     get_jec_config=None,
@@ -883,6 +888,9 @@ def jets_init(self: Calibrator) -> None:
     if self.propagate_met is not None:
         self.deps_kwargs[jec]["propagate_met"] = self.propagate_met
         self.deps_kwargs[jer]["propagate_met"] = self.propagate_met
+    if self.met_attr is not None:
+        self.deps_kwargs[jec]["met_attr"] = self.met_attr
+        self.deps_kwargs[jer]["met_attr"] = self.met_attr
     if self.get_jec_file is not None:
         self.deps_kwargs[jec]["get_jec_file"] = self.get_jec_file
     if self.get_jec_config is not None:
