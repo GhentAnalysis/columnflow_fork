@@ -3505,7 +3505,7 @@ class ChunkedIOHandler(object):
         chunk_positions = [
             self.create_chunk_position(self.n_entries, self.chunk_size, chunk_index)
             for chunk_index in range(max(self.n_chunks, 1))
-            # for chunk_index in range(1)
+            # here! mdc
         ]
 
         # fill the list of tasks the pool has to work through
