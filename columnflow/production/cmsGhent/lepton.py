@@ -152,9 +152,9 @@ def lepton_weights(
     """
 
     variable_map = self.input_func(events)
-    if self.mask_func or mask:
+    if self.mask_func or mask is not None:
         if self.mask_func:
-            mask = mask & self.mask_func(events)
+            mask = (mask or True) & self.mask_func(events)
         assert mask.ndim == 2, f"unexpected mask dimension {mask.ndim}"
         variable_map = {
             key: value[mask] if value.ndim == 2 else value
@@ -261,7 +261,11 @@ def electron_reco_input(events):
 
 @ElectronRecoBelow20WeightConfig.mask(uses={"Electron.pt"})
 def electron_reco_mask(events):
+<<<<<<< HEAD
     return events.Electron.pt < 2
+=======
+    return events.Electron.pt < 20
+>>>>>>> origin/scalefactor-development
 
 
 electron_recobelow20_weights = lepton_weights.derive(
@@ -276,6 +280,12 @@ ElectronRecoAbove20WeightConfig = ElectronRecoBelow20WeightConfig.copy(
     input_pars=dict(WorkinPoint="RecoAbove20"),
 )
 
+<<<<<<< HEAD
+=======
+@ElectronRecoAbove20WeightConfig.mask(uses={"Electron.pt"})
+def electron_reco_mask(events):
+    return events.Electron.pt > 20
+>>>>>>> origin/scalefactor-development
 
 electron_recoabove20_weights = lepton_weights.derive(
     "electron_recoabove20_weights",
