@@ -16,7 +16,7 @@ from columnflow.weight import WeightProducer
 from columnflow.util import maybe_import, DotDict
 from columnflow.columnar_util import set_ak_column, has_ak_column, Route, fill_hist
 
-from columnflow.types import Any, Iterable
+from columnflow.types import Any, Iterable, Callable
 
 np = maybe_import("numpy")
 ak = maybe_import("awkward")
@@ -32,18 +32,17 @@ class TriggerSFConfig:
     variables: Iterable[str]
     datasets: Iterable[str]
     corrector_kwargs: dict[str, Any] = field(default_factory=dict)
-    
+
     tag: str = "trig"
     ref_tag: str = "ref"
     sf_name: str = f"trig_sf",
-    aux: dict = None
+    aux: dict = field(default_factory=dict)
     objects = None  # list of objects used in the calculation: derived from the variables if None
 
-    # functions
-    get_sf_file = None
-    get_no_trigger_selection = lambda self, results: results.x("event_no_trigger", None)
-    event_mask_func = None
-    event_mask_uses = None
+    get_sf_file: Callable = None
+    get_no_trigger_selection: Callable = lambda self, results: results.x("event_no_trigger", None)
+    event_mask_func: Callable = None
+    event_mask_uses: set = field(default_factory=set)
 
     def __post_init__(self):
 
@@ -62,9 +61,7 @@ class TriggerSFConfig:
         if not isinstance(self.datasets, set):
             self.datasets = set(self.datasets)
 
-        self.aux = self.aux or {}
         self.x = DotDict(self.aux)
-        self.event_mask_uses = self.event_mask_uses or set()
 
     def copy(self, **changes):
         return replace(self, **changes)
@@ -330,7 +327,7 @@ def trigger_efficiency_hists_init(self: Producer):
     mc_only=True,
     # lepton config bundle, function to determine the location of a list of LeptonWeightConfig's
     trigger_configs=lambda self: self.config_inst.x.trigger_sfs,
-    config_naming=lambda self, cfg: config.sf_name
+    config_naming=lambda self, cfg: cfg.sf_name
 )
 def bundle_trigger_weights(
     self: Producer,
@@ -355,6 +352,41 @@ def bundle_trigger_weights_init(self: Producer) -> None:
         ))
 
     self.produces |= self.uses
-    
+
+
+@producer(
+    # only run on mc
+    mc_only=True,
+    # lepton config bundle, function to determine the location of a list of LeptonWeightConfig's
+    trigger_configs=lambda self: self.config_inst.x.trigger_sfs,
+    config_naming=lambda self, cfg: "hist_" + cfg.sf_name
+)
+def bundle_trigger_histograms(
+    self: Producer,
+    events: ak.Array,
+    results: SelectionResult,
+    hists: DotDict | dict = None,
+    object_mask: dict = None,
+    **kwargs,
+) -> ak.Array:
+
+    for trigger_hist_producer in self.uses:
+        events = self[trigger_hist_producer](events, results, hists, object_mask, **kwargs)
+
+    return events
+
+
+@bundle_trigger_weights.init
+def bundle_trigger_weights_init(self: Producer) -> None:
+
+    trigger_configs = self.trigger_configs()
+    for config in trigger_configs:
+        self.uses.add(trigger_efficiency_hists.derive(
+            self.config_naming(config),
+            cls_dict=dict(lepton_config=config),
+        ))
+
+    self.produces |= self.uses
+
     
 
