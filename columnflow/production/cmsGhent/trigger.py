@@ -32,9 +32,18 @@ class TriggerSFConfig:
     variables: Iterable[str]
     datasets: Iterable[str]
     corrector_kwargs: dict[str, Any] = field(default_factory=dict)
-    tag: str = None
-    ref_tag: str = None
+    
+    tag: str = "trig"
+    ref_tag: str = "ref"
+    sf_name: str = f"trig_sf",
     aux: dict = None
+    objects = None  # list of objects used in the calculation: derived from the variables if None
+
+    # functions
+    get_sf_file = None
+    get_no_trigger_selection = lambda self, results: results.x("event_no_trigger", None)
+    event_mask_func = None
+    event_mask_uses = None
 
     def __post_init__(self):
 
@@ -53,30 +62,46 @@ class TriggerSFConfig:
         if not isinstance(self.datasets, set):
             self.datasets = set(self.datasets)
 
-        self.tag = self.tag or "trig"
-        self.ref_tag = self.ref_tag or "ref"
         self.aux = self.aux or {}
         self.x = DotDict(self.aux)
+        self.event_mask_uses = self.event_mask_uses or set()
 
     def copy(self, **changes):
         return replace(self, **changes)
 
 
+    def event_mask(self, func: Callable[[ak.Array], ak.Array] = None, uses: set = None) -> None:
+        """
+        Decorator to wrap a function *func* that should be registered as :py:meth:`mask_func`
+        which is used to calculate the mask that should be applied to the lepton
+
+        The function should accept one positional argument:
+
+            - *events*, an awkward array from which the inouts are calculate
+
+
+        The decorator does not return the wrapped function.
+        """
+
+        def decorator(func: Callable[[ak.Array], dict[ak.Array]]):
+            self.event_mask_func = func
+            self.event_mask_uses = self.event_mask_uses | event_mask_uses
+
+        return decorator(func) if func else decorator
+
+
 def init_trigger(self: Producer | WeightProducer, add_eff_vars=True, add_hists=True):
-    self.trigger_config = self.get_trigger_config()
-    self.triggers = self.trigger_config.triggers
-    self.tag = self.trigger_config.tag
-    self.ref_triggers = self.trigger_config.ref_triggers
-    self.ref_tag = self.trigger_config.ref_tag
-    self.datasets = self.trigger_config.datasets
+    if callable(self.trigger_config):
+        self.trigger_config = self.get_trigger_config() 
+
+    for key, value in dataclasses.asdict(self.trigger_config).items():
+        if not hasattr(self, key):
+            setattr(self, key, value)
+            
     self.tag_name = f"hlt_{self.tag.lower()}_ref_{self.ref_tag.lower()}"
 
     if add_eff_vars:
-
-        # add variables to bin trigger efficiency
-        self.variables = self.trigger_config.variables
         self.variable_insts = list(map(self.config_inst.get_variable, self.variables))
-
         eff_bin_vars_inputs = {
             inp
             for variable_inst in self.variable_insts
@@ -120,19 +145,24 @@ def init_trigger(self: Producer | WeightProducer, add_eff_vars=True, add_hists=T
 
 
 @producer(
-    get_sf_file=None,
-    sf_name=lambda self: f"trig_sf_{self.tag}",
-    get_trigger_config=lambda self: self.config_inst.x.trigger_sf,
+    mc_only=True,
+    trigger_config=lambda self: self.config_inst.x.trigger_sf,
 )
 def trigger_scale_factors(
     self: Producer,
     events: ak.Array,
-    event_mask: ak.Array,
+    event_mask: ak.Array = None,
     **kwargs,
 ):
     inputs = []
     sf = {vr: np.ones(len(events)) for vr in ["central", "down", "up"]}
-    selected_events = events[event_mask]
+
+    selected_events = events
+    if event_mask or self.event_mask_func:
+        if self.event_mask_func:
+            event_mask = (event_mask or True) & self.event_mask_func(events)
+        selected_events = selected_events[event_mask]
+
     if len(selected_events) > 0:
         for variable_inst in self.variable_insts:
             if variable_inst.x("auxiliary", False) is not False:
@@ -160,7 +190,7 @@ def trigger_scale_factors(
 @trigger_scale_factors.init
 def trigger_scale_factors_init(self: Producer):
     init_trigger(self, add_eff_vars=True, add_hists=False)
-
+    self.uses |= self.event_mask_uses
     self.produces = {self.sf_name() + suff for suff in ["", "_down", "_up"]}
 
 
@@ -217,9 +247,7 @@ def trigger_scale_factors_setup(
 
 @producer(
     # only run on mc
-    get_no_trigger_selection=lambda self, results: results.x("event_no_trigger", None),
-    get_trigger_config=lambda self: self.config_inst.x.trigger_sf,
-    objects=None,
+    trigger_config=lambda self: self.config_inst.x.trigger_sf,
 )
 def trigger_efficiency_hists(
     self: Producer,
@@ -295,3 +323,38 @@ def trigger_efficiency_hists_init(self: Producer):
         self.uses.add("mc_weight")
 
     init_trigger(self)
+    
+
+@producer(
+    # only run on mc
+    mc_only=True,
+    # lepton config bundle, function to determine the location of a list of LeptonWeightConfig's
+    trigger_configs=lambda self: self.config_inst.x.trigger_sfs,
+    config_naming=lambda self, cfg: config.sf_name
+)
+def bundle_trigger_weights(
+    self: Producer,
+    events: ak.Array,
+    **kwargs,
+) -> ak.Array:
+
+    for trigger_weight_producer in self.uses:
+        events = self[trigger_weight_producer](events, **kwargs)
+
+    return events
+
+
+@bundle_trigger_weights.init
+def bundle_trigger_weights_init(self: Producer) -> None:
+
+    trigger_configs = self.trigger_configs()
+    for config in trigger_configs:
+        self.uses.add(trigger_scale_factors.derive(
+            self.config_naming(config),
+            cls_dict=dict(lepton_config=config),
+        ))
+
+    self.produces |= self.uses
+    
+    
+
