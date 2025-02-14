@@ -17,6 +17,7 @@ correctionlib = maybe_import("correctionlib")
 
 logger = law.logger.get_logger(__name__)
 
+
 @dataclasses.dataclass
 class LeptonWeightConfig:
     """Config for mva type lepton IDs
@@ -49,7 +50,6 @@ class LeptonWeightConfig:
     input_func: Callable[[ak.Array], dict[ak.Array]] = None
     mask_func: Callable[[ak.Array], ak.Array] = None
 
-
     def __post_init__(self):
         if self.aux is None:
             self.aux = dict()
@@ -59,21 +59,26 @@ class LeptonWeightConfig:
 
         self.input_pars = {"year": str(self.year)} | (self.input_pars or {})
 
-        systs = dict()
-        for s in self.systematics:
-            if isinstance(s, str):
-                systs[s] = f"_{s}"
-            elif isinstance(s, Sequence) and len(s) == 2:
-                systs[s[0]] = f"_{s[1]}" if s[1] else ""
-            else:
-                AssertionError(f"provided illegal systematics for {self}")
-        self.systematics = systs
+        if not isinstance(self.systematics, dict):
+            systs = dict()
+            for s in self.systematics:
+                if isinstance(s, str):
+                    systs[s] = f"_{s}"
+                elif isinstance(s, Sequence) and len(s) == 2:
+                    systs[s[0]] = f"_{s[1]}" if s[1] else ""
+                else:
+                    AssertionError(f"provided illegal systematics for {self}")
+            self.systematics = systs
+        else:
+            self.systematics = {
+                s: ("_" if ss else "") + ss.lstrip("_")
+                for s, ss in self.systematics.items()
+            }
 
     def copy(self, /, **changes):
         return dataclasses.replace(self, **changes)
 
-    @classmethod
-    def input(cls, func: Callable[[ak.Array], dict[ak.Array]] = None, uses: set = None) -> None:
+    def input(self, func: Callable[[ak.Array], dict[ak.Array]] = None, uses: set = None) -> None:
         """
         Decorator to wrap a function *func* that should be registered as :py:meth:`input_func`
         which is used to calculate the input to the correctionlib corrector object.
@@ -87,14 +92,13 @@ class LeptonWeightConfig:
         The decorator does not return the wrapped function.
         """
         def decorator(func: Callable[[ak.Array], dict[ak.Array]]):
-            cls.input_func = func
-            cls.uses = cls.uses | uses
+            self.input_func = func
+            if uses:
+                self.uses = self.uses | uses
 
         return decorator(func) if func else decorator
 
-
-    @classmethod
-    def mask(cls, func: Callable[[ak.Array], ak.Array] = None, uses: set = None) -> None:
+    def mask(self, func: Callable[[ak.Array], ak.Array] = None, uses: set = None) -> None:
         """
         Decorator to wrap a function *func* that should be registered as :py:meth:`mask_func`
         which is used to calculate the mask that should be applied to the lepton
@@ -108,8 +112,8 @@ class LeptonWeightConfig:
         """
 
         def decorator(func: Callable[[ak.Array], dict[ak.Array]]):
-            cls.mask_func = func
-            cls.uses = cls.uses | uses
+            self.mask_func = func
+            self.uses = self.uses | uses
 
         return decorator(func) if func else decorator
 
@@ -148,11 +152,9 @@ def lepton_weights(
     """
 
     variable_map = self.input_func(events)
-
-
-    if self.mask_func or mask:
+    if self.mask_func or mask is not None:
         if self.mask_func:
-            mask = mask & self.mask_func(events)
+            mask = (mask or True) & self.mask_func(events)
         assert mask.ndim == 2, f"unexpected mask dimension {mask.ndim}"
         variable_map = {
             key: value[mask] if value.ndim == 2 else value
@@ -190,10 +192,11 @@ def lepton_weights(
 def lepton_weights_init(self: Producer) -> None:
     if callable(self.lepton_config):
         self.lepton_config = self.lepton_config()
-    for key, value in dataclasses.asdict(self.wp_config).items():
+    for key, value in dataclasses.asdict(self.lepton_config).items():
         if not hasattr(self, key):
             setattr(self, key, value)
     self.uses |= self.lepton_config.uses
+    self.produces |= {f"{self.weight_name}{postfix}" for postfix in self.systematics.values()}
 
 
 @lepton_weights.requires
@@ -230,25 +233,28 @@ def lepton_weights_setup(
         )
     else:
         raise Exception(
-            f"unsupported muon sf corrector file type: {file_path}",
+            f"unsupported lepton sf corrector file type: {file_path}",
         )
 
-    self.lepton_sf_corrector = correction_set[self.correction_set]
+    self.corrector = correction_set[self.correction_set]
 
 
-# example config for electron
-ElectronRecoBelow20WeightConfig = LeptonWeightConfig(
-    year="2018",
-    weight_name="weight_electron_recobelow20",
+#
+#  example config for muon
+#
+
+ElectronBaseWeightConfig = LeptonWeightConfig(
+    year=None,
+    weight_name="weight_electron",
     correction_set="UL-Electron-ID-SF",
     get_sf_file=lambda bundle: bundle.electron_sf,
-    input_pars=dict(WorkingPoint="RecoBelow20"),
+    input_pars=dict(WorkingPoint=None),
     systematics=dict(sf="", sfup="up", sfdown="down"),
 )
 
 
-@ElectronRecoBelow20WeightConfig.input(uses={"Electron.{pt,eta,eltaEtaSC,phi}"})
-def electron_reco_input(events):
+@ElectronBaseWeightConfig.input(uses={"Electron.{pt,eta,deltaEtaSC,phi}"})
+def electron_input(events):
     return {
         "pt": events.Electron.pt,
         "eta": events.Electron.eta + events.Electron.deltaEtaSC,
@@ -256,53 +262,68 @@ def electron_reco_input(events):
     }
 
 
+ElectronRecoBelow20WeightConfig = ElectronBaseWeightConfig.copy(
+    year=2018,
+    weight_name="weight_electron_recobelow20",
+    input_pars=dict(WorkinPoint="RecoBelow20"),
+)
+
+
 @ElectronRecoBelow20WeightConfig.mask(uses={"Electron.pt"})
-def electron_reco_mask(events):
-    return events.Electron.pt < 2
+def electron_recobelow20_mask(events):
+    return events.Electron.pt < 20
 
 
-electron_recobelow20_weights = lepton_weights.derive(
-    "electron_recobelow20_weights",
-    cls_dict=dict(lepton_config=ElectronRecoBelow20WeightConfig)
+MuonBaseWeightConfig = LeptonWeightConfig(
+    year=None,
+    weight_name="weight_muon",
+    correction_set="NUM_MediumID_DEN_TrackerMuons",
+    get_sf_file=lambda bundle: bundle.muon_sf,
+    syst_key="scale_factors",
+    systematics=dict(nominal="", systup="_up", systdown="_down"),
 )
 
 
-# Use .copy to overwrite any property
-ElectronRecoAbove20WeightConfig = ElectronRecoBelow20WeightConfig.copy(
-    weight_name="weight_electron_recoabove20",
-    input_pars=dict(WorkinPoint="RecoAbove20")
+@MuonBaseWeightConfig.input(uses={"Muon.{pt,eta}"})
+def muon_mva_input(events):
+    return {
+        "pt": events.Muon.pt,
+        "eta": events.Muon.eta,
+        "phi": events.Muon.phi,
+    }
+
+
+#
+# bundle of all lepton weight producers
+#
+
+@producer(
+    # only run on mc
+    mc_only=True,
+    # lepton config bundle, function to determine the location of a list of LeptonWeightConfig's
+    lepton_configs=lambda self: self.config_inst.x.lepton_weight_configs,
+    config_naming=lambda self, cfg: cfg.weight_name 
 )
+def bundle_lepton_weights(
+    self: Producer,
+    events: ak.Array,
+    **kwargs,
+) -> ak.Array:
+
+    for lepton_weight_producer in self.uses:
+        events = self[lepton_weight_producer](events, **kwargs)
+
+    return events
 
 
-electron_recoabove20_weights = lepton_weights.derive(
-    "electron_recoabove20_weights",
-    cls_dict=dict(lepton_config=ElectronRecoAbove20WeightConfig)
-)
+@bundle_lepton_weights.init
+def bundle_lepton_weights_init(self: Producer) -> None:
 
+    lepton_configs = self.lepton_configs()
+    for config in lepton_configs:
+        self.uses.add(lepton_weights.derive(
+            self.confog_naming(config),
+            cls_dict=dict(lepton_config=config),
+        ))
 
-# example config for top lepton mva
-ElectronMVATOPWeightConfig = LeptonWeightConfig(
-    year="2018",
-    weight_name="weight_electron_mva",
-    correction_set="sf_Electron",
-    get_sf_file=lambda bundle: bundle.lepton_mva.sf,
-    input_pars=dict(working_point="Tight"),
-    syst_key="systematic",
-    systematics=dict(central="") | {"{d}_{s}": "{s}_{d}" for s in ["stat", "syst"] for d in ["up", "down"]}
-)
-
-electron_mva_weights = lepton_weights.derive(
-    "electron_mva_weights",
-    cls_dict=dict(lepton_config=ElectronMVATOPWeightConfig)
-)
-
-
-MuonMVATOPWeightConfig = ElectronMVATOPWeightConfig.copy(
-    weight_name="weight_mun_mva",
-    correction_set="sf_Muon",
-)
-
-muon_mva_weights = lepton_weights.derive(
-    "muon_mva_weights",
-    cls_dict=dict(lepton_config=MuonMVATOPWeightConfig)
-)
+    self.produces |= self.uses
