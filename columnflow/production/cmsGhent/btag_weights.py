@@ -184,11 +184,11 @@ def fixed_wp_btag_weights(
                 )
                 eff = self.btag_eff_corrector(
                     flat_input.hadronFlavour,
+                    working_point,
                     # currently set hard max on pt since overflow could not be changed in correctionlib
                     # (could also manually change the flow)
                     ak.min([flat_input.pt, 999 * ak.ones_like(flat_input.pt)], axis=0),
                     flat_input.abseta,
-                    working_point,
                 )
                 return sf, eff
 
