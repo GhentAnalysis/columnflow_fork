@@ -383,7 +383,7 @@ def bundle_trigger_histograms_init(self: Producer) -> None:
     for config in trigger_configs:
         self.uses.add(trigger_efficiency_hists.derive(
             self.config_naming(config),
-            cls_dict=dict(lepton_config=config),
+            cls_dict=dict(trigger_config=config),
         ))
 
     self.produces |= self.uses
