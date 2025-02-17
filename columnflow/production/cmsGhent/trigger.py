@@ -8,7 +8,7 @@ from __future__ import annotations
 import law
 import order as od
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, replace, asdict
 
 from columnflow.selection import SelectionResult
 from columnflow.production import producer, Producer
@@ -35,12 +35,12 @@ class TriggerSFConfig:
 
     tag: str = "trig"
     ref_tag: str = "ref"
-    sf_name: str = f"trig_sf",
+    sf_name: str = f"trig_sf"
     aux: dict = field(default_factory=dict)
     objects = None  # list of objects used in the calculation: derived from the variables if None
 
     get_sf_file: Callable = None
-    get_no_trigger_selection: Callable = lambda self, results: results.x("event_no_trigger", None)
+    get_no_trigger_selection: Callable = lambda results: results.x("event_no_trigger", None)
     event_mask_func: Callable = None
     event_mask_uses: set = field(default_factory=set)
 
@@ -89,9 +89,9 @@ class TriggerSFConfig:
 
 def init_trigger(self: Producer | WeightProducer, add_eff_vars=True, add_hists=True):
     if callable(self.trigger_config):
-        self.trigger_config = self.get_trigger_config() 
+        self.trigger_config = self.trigger_config() 
 
-    for key, value in dataclasses.asdict(self.trigger_config).items():
+    for key, value in asdict(self.trigger_config).items():
         if not hasattr(self, key):
             setattr(self, key, value)
             
@@ -110,7 +110,7 @@ def init_trigger(self: Producer | WeightProducer, add_eff_vars=True, add_hists=T
         }
 
         if add_hists:
-            if self.objects is None:
+            if not hasattr(self, "objects"):
                 self.objects = {inp.split(".")[0] for inp in eff_bin_vars_inputs if "." in inp}
 
             # add variable to bin measured trigger PASS / FAIL
@@ -179,7 +179,7 @@ def trigger_scale_factors(
         for vr in sf:
             sf[vr][event_mask] = self.sf_corrector.evaluate(vr, *inputs)
     for vr in sf:
-        name = self.sf_name() + ("" if vr == "central" else ("_" + vr))
+        name = self.sf_name + ("" if vr == "central" else ("_" + vr))
         events = set_ak_column(events, name, sf[vr])
     return events
 
@@ -188,7 +188,7 @@ def trigger_scale_factors(
 def trigger_scale_factors_init(self: Producer):
     init_trigger(self, add_eff_vars=True, add_hists=False)
     self.uses |= self.event_mask_uses
-    self.produces = {self.sf_name() + suff for suff in ["", "_down", "_up"]}
+    self.produces = {self.sf_name + suff for suff in ["", "_down", "_up"]}
 
 
 @trigger_scale_factors.requires
@@ -348,7 +348,7 @@ def bundle_trigger_weights_init(self: Producer) -> None:
     for config in trigger_configs:
         self.uses.add(trigger_scale_factors.derive(
             self.config_naming(config),
-            cls_dict=dict(lepton_config=config),
+            cls_dict=dict(trigger_config=config),
         ))
 
     self.produces |= self.uses
@@ -376,14 +376,14 @@ def bundle_trigger_histograms(
     return events
 
 
-@bundle_trigger_weights.init
-def bundle_trigger_weights_init(self: Producer) -> None:
+@bundle_trigger_histograms.init
+def bundle_trigger_histograms_init(self: Producer) -> None:
 
     trigger_configs = self.trigger_configs()
     for config in trigger_configs:
         self.uses.add(trigger_efficiency_hists.derive(
             self.config_naming(config),
-            cls_dict=dict(lepton_config=config),
+            cls_dict=dict(trigger_config=config),
         ))
 
     self.produces |= self.uses
