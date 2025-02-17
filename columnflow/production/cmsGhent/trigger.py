@@ -376,8 +376,8 @@ def bundle_trigger_histograms(
     return events
 
 
-@bundle_trigger_weights.init
-def bundle_trigger_weights_init(self: Producer) -> None:
+@bundle_trigger_histograms.init
+def bundle_trigger_histograms_init(self: Producer) -> None:
 
     trigger_configs = self.trigger_configs()
     for config in trigger_configs:
