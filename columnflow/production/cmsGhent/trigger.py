@@ -40,7 +40,7 @@ class TriggerSFConfig:
     objects = None  # list of objects used in the calculation: derived from the variables if None
 
     get_sf_file: Callable = None
-    get_no_trigger_selection: Callable = lambda self, results: results.x("event_no_trigger", None)
+    get_no_trigger_selection: Callable = lambda results: results.x("event_no_trigger", None)
     event_mask_func: Callable = None
     event_mask_uses: set = field(default_factory=set)
 
