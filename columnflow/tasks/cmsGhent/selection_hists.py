@@ -134,7 +134,7 @@ class SelectionEfficiencyHistMixin(
         xsec = 1 if process_inst.is_data else process_inst.get_xsec(config_inst.campaign.ecm).nominal
         return process_inst, xsec
 
-    def read_hist(self, variable_insts=tuple(), name=None) -> dict[od.Process, hist.Hist]:
+    def read_hist(self, variable_insts=tuple(), name=None) -> dict[od.Dataset, hist.Hist]:
         """
         read the histograms calculated in MergeSelectionStats task, properly normalize,
         and apply flow and merged bin settings from the given variables.

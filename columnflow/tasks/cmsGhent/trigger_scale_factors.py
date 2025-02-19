@@ -17,6 +17,8 @@ from columnflow.tasks.framework.plotting import (
     PlotBase, PlotBase2D, PlotBase1D,
 )
 from columnflow.tasks.cmsGhent.selection_hists import SelectionEfficiencyHistMixin, CustomDefaultVariablesMixin
+from columnflow.production.cmsGhent.trigger import TriggerSFConfig
+import columnflow.production.cmsGhent.trigger.util as util
 from columnflow.tasks.framework.remote import RemoteWorkflow
 from columnflow.util import dev_sandbox, dict_add_strict, maybe_import
 
@@ -35,10 +37,21 @@ class TriggerScaleFactorsBase(
     RemoteWorkflow,
 ):
     exclude_index = True
-    trigger = luigi.Parameter(description="Trigger to measure")
-    ref_trigger = luigi.Parameter(description="Reference to use", default=None)
+    trigger_config = luigi.Parameter(description="Trigger config to use to measure", default=None)
 
     sandbox = dev_sandbox(law.config.get("analysis", "default_columnar_sandbox"))
+
+    @classmethod
+    def get_trigger_config(cls, config_inst, name=None):
+        if name is None:
+            return config_inst.x("trigger_sf", config_inst.x.trigger_sfs[0])
+        for cfg in config_inst.x.trigger_sfs:
+            if cfg.config_name == name:
+                return cfg
+        AssertionError(
+            f"could not find trigger config {name}.\n"
+            "Available: " + ", ".join([cfg.config_name for cfg in config_inst.x.trigger_sfs])
+        )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -55,18 +68,9 @@ class TriggerScaleFactorsBase(
         # variable in which the nominal variables are binned
         self.nonaux_variable_insts = [v for v in self.variable_insts if v.aux.get("auxiliary") is None]
 
-    @classmethod
-    def resolve_param_values(cls, params):
-        if not (trig := params.get("trigger")):
-            return params
-        params = super().resolve_param_values(params)
-        if not (config_inst := params.get("config_inst")):
-            return params
-        if not (ref_trigger := params.get("ref_trigger")):
-            ref_trigger = config_inst.x("analysis_triggers", dict()).get(trig, (None, None))[0]
-            assert ref_trigger is not None, "no default trigger specified in config.x.analysis_triggers"
-        params["ref_trigger"] = ref_trigger
-        return params
+        self.trigger_config_inst: TriggerSFConfig = self.get_trigger_config(self.config_inst, self.trigger_config)
+        self.trigger = self.trigger_config.tag
+        self.ref_trigger = self.trigger_config.ref_tag
 
     def loop_variables(
         self,
@@ -135,285 +139,100 @@ class TriggerScaleFactors(
 ):
     exclude_index = False
 
-    @classmethod
-    def resolve_param_values(cls, params):
-        if not (trig := params.get("trigger")):
-            return params
-        cls.tag_name = f"hlt_{trig.lower()}"
-        return super().resolve_param_values(params)
-
     def output(self):
         out = {
             "json": self.target(f"{self.tag_name}_sf.json"),
             "sf": self.target(f"{self.tag_name}_sf.pickle"),
             "eff": self.target(f"{self.tag_name}_eff.pickle"),
-            "cnt": self.target(f"{self.tag_name}_counts.pickle"),
-            "corr": self.target(f"{self.tag_name}_corr.pickle"),
+            "hist": self.target(f"{self.tag_name}_hist.pickle"),
         }
         return out
-
-    def correlation_efficiency_bias(self, passfailhist):
-        """
-        calculate efficiecy bias of trigger T w.r.t. reference trigger M based on frequency matrix.
-        The bias is defined as Eff(T|M=1) / Eff(T|M=0)
-
-        Returns: bias, bias - 1sig error, bias + 1sig error
-
-        """
-        import statsmodels.genmod.generalized_linear_model as glm
-        from statsmodels.genmod.families import Binomial
-        from statsmodels.genmod.families.links import Log
-        from statsmodels.tools.sm_exceptions import DomainWarning
-
-        total = passfailhist[sum, sum]
-        passfailmatrix = passfailhist.values() * total.value / total.variance
-
-        assert passfailmatrix.shape == (2, 2), "invalid pass-fail-matrix"
-
-        if np.any(np.sum(np.abs(passfailmatrix), axis=0) < 1e-9):
-            return (np.nan,) * 2
-
-        if np.any(passfailmatrix < 0):
-            logger.warning("Pass-Fail matrix has negative counts. Negative counts are set to 0.")
-            passfailmatrix[passfailmatrix < 0] = 0
-
-        trigger_values = np.array([0, 0, 1, 1])
-        ref_trigger_values = np.array([0, 1, 0, 1])
-
-        # log Eff(T|M) = b + a * M
-        # Eff(T|M = 1) / Eff(T|M = 0) = exp(a)
-        with np.testing.suppress_warnings() as sup:
-            # Using the Log linking function with binomial values is convenient,
-            # but can result in issues since the function does not map to [0, 1].
-            # To avoid constant warnings about this, they are suppressed here
-            sup.filter(DomainWarning)
-            model = glm.GLM(trigger_values,
-                            np.transpose([[1, 1, 1, 1],
-                                          ref_trigger_values]),
-                            freq_weights=passfailmatrix.flatten(),
-                            family=Binomial(link=Log()))
-            res = model.fit()
-
-        # multiplicative bias = exp(a)
-        mult_bias = np.exp(res.params[1])
-        # d(exp a) = exp(a) da
-        var = res.cov_params()[1, 1] * mult_bias ** 2
-
-        return mult_bias - 1, var
 
     @law.decorator.log
     def run(self):
         import hist
-        import numpy as np
         import correctionlib.convert
-        from columnflow.tasks.cmsGhent.Koopman_test import koopman_confint
 
-        bindim = [variable_inst.n_bins for variable_inst in self.nonaux_variable_insts]
+        calc_eff = lambda h: util.calculate_efficiency(h, self.trigger, self.ref_trigger, self.efficiency)
+        tcfg: TriggerSFConfig = self.trigger_config
 
-        hist_name = self.tag_name + "_ref_" + self.ref_trigger.lower() + "_efficiencies"
+        hist_name = self.trigger_config_inst.config_name + "_efficiencies"
         histograms = self.read_hist(self.variable_insts, hist_name)
+        store_hists = dict()
+
+        collect_hists = util.collect_hist(histograms)
+
+        def eff_and_sf(vars: list[str] | str):
+
+            # calculate efficiency binned in given variables
+            red_hist = {dt: util.reduce_hist(h, exclude=vars) for dt, h in collect_hists.items()}
+            eff = {dt: calc_eff(h) for dt, h in red_hist.items()}
+
+            # calculate sf from efficiencies
+            sf = util.syst_hist(eff["data"].axes, syst_name="central", arrays=eff["data"].values() / eff["mc"].values())
+
+            if set(law.util.make_list(vars)) == set(tcfg.main_variables):
+                # full uncertainties for main binning
+                for unc_function in self.trigger_config_inst.uncertainties:
+                    if (unc := unc_function(histograms, store_hists)) is not None:
+                        sf = sf + unc
+            else:
+                # statistical only for other binnings
+                sf = sf + tcfg.stat_unc(red_hist)
+
+            return eff, sf
+
         efficiencies = {}
-        sum_histograms = {}
+        scale_factors: dict[str, hist.Hist] = {}
+        for var in tcfg.variables:
+            # 1d efficiencies and sf
+            efficiencies[var], scale_factors[var] = eff_and_sf(var)
 
-        def calc_eff(dt_type: str, vr: od.Variable = None, reduce_all=False):
-            """
-            sum histograms from datasets certain data type, reduce selected axes, and calculate efficiencies.
-            Summed histograms are stored in the dict **sum_histograms**. Efficiencies in the dict **efficiencies**.
-            Keys are of the form **{dt_type}_{vr.name}_proj** if **reduce_all** else **{dt_type}_{vr.name}**
-            By default, all auxiliary variable axes are reduced, unless **reduce_all=True**.
-            The axis of the variable **vr** is not reduced. Combine **vr** with **reduce_all** to make 1D efficiencies.
+            # fully binned efficiency in  main variables with additional variables
+            if var in tcfg.main_variables[1:] or len(tcfg.main_variables) == len(tcfg.variables) == 1:
+                # don't repeat multiple times same calculation
+                continue
 
-            @param dt_type: data type of the datasets (data or mc)
-            @param vr: variable whose axis will not be reduced
-            @param reduce_all: if True, reduce all variable axis, otherwise only auxiliaries (always except **vr**)
-            """
+            if var not in (vrs := tcfg.main_variables):
+                vrs = sorted({var, *vrs}, key=tcfg.variables.index)
 
-            h_key = dt_type
-            if vr is not None:
-                h_key += f"_{vr.name}"
-                if reduce_all:
-                    h_key += "_proj"
+            key = "_".join(vrs)
+            efficiencies[key], scale_factors[key] = eff_and_sf(vrs)
 
-            # sum all mc / data histograms
-            sum_histograms[h_key] = sum([histograms[dt] for dt in histograms if getattr(dt, f"is_{dt_type}")])
-            assert sum_histograms[h_key] != 0, f"did not find any {dt_type} histograms"
-
-            # choose all variables or only the auxiliary ones to reduce
-            all_vars = self.variable_insts if reduce_all else self.aux_variable_insts
-            # apply reduction method specified in the dict **self.aux_variable_insts** (sum or slice)
-            idx = {v.name: self.aux_variable_insts.get(v, sum) for v in all_vars if v != vr}
-            sum_histograms[h_key] = sum_histograms[h_key][idx]
-
-            # counts that pass both triggers
-            selected_counts = sum_histograms[h_key][{self.ref_trigger: 1, self.trigger: 1}]
-            # counts that pass reference triggers
-            incl = sum_histograms[h_key][{self.ref_trigger: 1, self.trigger: sum}]
-            # calculate efficiency
-            efficiencies[h_key] = self.efficiency(selected_counts, incl)
-
-        # multidim efficiencies with additional auxiliaries
-        for dt_type, aux_vr in product(["data", "mc"], [None, *self.aux_variable_insts]):
-            calc_eff(dt_type, aux_vr)
-
-        # 1d efficiencies
-        for dt_type, aux_vr in product(["data", "mc"], self.variable_insts):
-            calc_eff(dt_type, aux_vr, reduce_all=True)
-
-        # save efficiency  and summed hists
-        self.output()["cnt"].dump(efficiencies, formatter="pickle")
+        # save efficiency and additional histograms
         self.output()["eff"].dump(efficiencies, formatter="pickle")
+        self.output()["hist"].dump(store_hists, formatter="pickle")
 
-        # scale factors
-
-        def calc_sf(suff=""):
-            """
-            get central scale factor for efficiencies determined by the given suffix
-            """
-            data, mc = self.data_mc_keys(suff)
-            ct_idx = {"systematic": "central"}
-            return efficiencies[data][ct_idx] / efficiencies[mc][ct_idx].values()
-
-        nom_centr_sf = calc_sf()
-        scale_factors: dict[str, dict[str, hist.Hist]] = defaultdict(dict)
-        scale_factors["nominal"] = {"central": nom_centr_sf}
-
-        def up_down_dict(name, err):
-            """convenience function"""
-            return {f"{name}_down": nom_centr_sf - err, f"{name}_up": nom_centr_sf + err}
-
-        # bias from auxiliary variables: e.g. HT in single electron trigger
-        for aux_vr in self.aux_variable_insts:
-            sf_aux = calc_sf(aux_vr.name)
-            scale_factors[aux_vr.name]["central"] = sf_aux
-            aux_idx = sf_aux.axes.name.index(aux_vr.name)
-            dev = np.abs(sf_aux.values() - np.expand_dims(nom_centr_sf.values(), axis=aux_idx))
-            scale_factors["nominal"] |= up_down_dict(aux_vr.name, np.max(dev, axis=aux_idx))
-
-        # koopman-based statistical error
-        def calc_staterr(aux_vr: od.Variable = None):
-            """
-            get scale factor uncertainties for efficiencies determined by the given suffix. Allow
-            for one additional auxiliary variable in the binning.
-            """
-            container_dim = bindim
-            if aux_vr is not None:
-                container_dim = [vr.n_bins for vr in self.variable_insts if vr in [aux_vr, *self.nonaux_variable_insts]]
-
-            container = np.ones((2, *container_dim))
-            for idx in self.loop_variables(aux=aux_vr):
-                data, mc = self.data_mc_keys("" if aux_vr is None else aux_vr.name)
-                t_idx = idx | {self.ref_trigger: 1}  # efficiency calculated in events passing reference
-                data = sum_histograms[data][t_idx]
-                mc = sum_histograms[mc][t_idx]
-                inputs = [x.value for x in [data[1], data[sum], mc[1], mc[sum]]]
-                container[(..., *idx.values())] = koopman_confint(*inputs)
-            out = {}
-            for dr, c in zip(["stat_down", "stat_up"], container):
-                out[dr] = scale_factors["nominal" if aux_vr is None else aux_vr.name]["central"].copy()
-                out[dr].values()[:] = c
-            return out
-
-        scale_factors["nominal"] |= calc_staterr()
-        for aux_vr in self.aux_variable_insts:
-            scale_factors[aux_vr.name] |= calc_staterr(aux_vr=aux_vr)
-
-        # bias in efficiency because of correlation
-        corr_bias = {
-            "all": hist.Hist(
-                *scale_factors["nominal"]["central"].axes,
-                name="correlation bias",
-                label=f"correlation bias for {self.trigger} trigger with reference {self.ref_trigger} "
-                f"for year {self.config_inst.x.year} "
-                      f"(binned in {', '.join([vr.name for vr in self.nonaux_variable_insts])})",
-                storage=hist.storage.Weight(),
-            ),
-        }
-
-        for idx in self.loop_variables(aux=None):
-            pf = sum_histograms["mc"][idx]
-            corr_bias["all"][idx] = self.correlation_efficiency_bias(pf)
-        scale_factors["nominal"] |= up_down_dict("corr", corr_bias["all"].values() * nom_centr_sf.values())
-
-        # correlation bias in 1D efficiencies
-        for vr in self.nonaux_variable_insts:
-            corr_bias[vr.name] = hist.Hist(
-                scale_factors["nominal"]["central"].axes[vr.name],
-                name=f"correlation bias ({vr.name})",
-                label=f"correlation bias for {self.trigger} trigger with reference {self.ref_trigger} "
-                      f"for year {self.config_inst.x.year} (binned in {vr.name})",
-                storage=hist.storage.Weight(),
-            )
-            # trigger must be along first axis!
-            pf = sum_histograms["mc"].project(self.trigger, self.ref_trigger, vr.name)
-
-            for idx in range(vr.n_bins):
-                corr_bias[vr.name][idx] = self.correlation_efficiency_bias(pf[{vr.name: idx}])
-
-            # broad cast projected hist back to nominal binning
-            vr_idx = nom_centr_sf.axes.name.index(vr.name)
-            bias = np.expand_dims(
-                corr_bias[vr.name].values(),
-                np.delete(
-                    np.arange(nom_centr_sf.ndim),  # add length one axis for all nominal dimension
-                    vr_idx,  # except at the axis index of the current variable
-                ).tolist(),
-            )
-
-            scale_factors["nominal"] |= up_down_dict("corr_" + vr.name, bias * nom_centr_sf.values())
-
-        # inclusive correlations
-        corr_bias["incl"] = hist.Hist(
-            name="correlation bias (incl)",
-            label=f"correlation bias for {self.trigger} trigger with reference {self.ref_trigger} "
-                  f"for year {self.config_inst.x.year} (inclusive)",
-            storage=hist.storage.Weight(),
-        )
-        pf = sum_histograms["mc"].project(self.trigger, self.ref_trigger)
-        corr_bias["incl"][...] = self.correlation_efficiency_bias(pf)
-
-        # store correlations
-        self.output()["corr"].dump(corr_bias, formatter="pickle")
-
-        scale_factors["nominal"] |= up_down_dict("corr_incl", corr_bias["incl"][...].value * nom_centr_sf.values())
-
+        # add up all uncertainties for nominal
         sf_hists = {}
-        for sf_type, arrays in scale_factors.items():
-            ct = arrays.pop("central")
-            hst = hist.Hist(
-                hist.axis.StrCategory(["central", "down", "up", *arrays], name="systematic"),
-                *ct.axes,
-                name="scale_factors",
-                label=f"trigger scale factors for {self.trigger} trigger with reference {self.ref_trigger} "
-                      f"for year {self.config_inst.x.year}",
-                storage=hist.storage.Weight(),
+        for sf_type, hst in scale_factors.items():
+            hst.name = "scale_factors"
+            hst.label = (
+                f"trigger scale factors for {self.trigger} trigger with reference {self.ref_trigger} "
+                f"for year {self.config_inst.x.year}"
             )
-            hst.values()[(idx := 0)] = ct.values()
+            get_syst = lambda syst: hst[{"systematic": syst}].values()
+            ct = get_syst("central")
             # add quadratic sum of all uncertainties
-            for dr in ["down", "up"]:
-                variance = 0
-                for err in [v.name for v in self.aux_variable_insts] + ["stat", "corr_incl"]:
-                    if f"{err}_{dr}" not in arrays:
-                        continue
-                    variance = variance + (arrays[f"{err}_{dr}"].values() - ct.values()) ** 2
-                hst.values()[(idx := idx + 1)] = ct.values() - (-1) ** idx * np.sqrt(variance)
+            variance = {dr: 0 for dr in [od.Shift.DOWN, od.Shift.UP]}
+            for err in hst.axes["systematic"]:
+                for dr in variance:
+                    if dr in variance:
+                        variance[dr] += (get_syst(err) - ct) ** 2
 
-            # add remaining uncertainties
-            hst.values()[idx + 1:] = [h.values() for h in arrays.values()]
-
-            # remove variances
-            hst.variances()[:] = 1
-
-            sf_hists[sf_type] = hst
+            var_hst = util.syst_hist(hst.axes, arrays=[ct - variance[od.Shift.DOWN], ct + variance[od.Shift.UP]])
+            scale_factors[sf_type] = hst + var_hst
 
         # save sf histograms
         self.output()["sf"].dump(sf_hists, formatter="pickle")
 
         # save nominal as correctionlib file (not possible to specify the flow for each variable separately)
-        clibcorr = correctionlib.convert.from_histogram(sf_hists["nominal"], flow="clamp")
-        clibcorr.description = sf_hists["nominal"].label
+        nom_key = "_".join(tcfg.main_variables)
+        clibcorr = correctionlib.convert.from_histogram(sf_hists[nom_key], flow="clamp")
+        clibcorr.description = sf_hists[nom_key].label
 
         cset = correctionlib.schemav2.CorrectionSet(
-            schema_version=2, description=sf_hists["nominal"].label, corrections=[clibcorr],
+            schema_version=2, description=sf_hists[nom_key].label, corrections=[clibcorr],
         )
         self.output()["json"].dump(cset.dict(exclude_unset=True), indent=4, formatter="json")
 
