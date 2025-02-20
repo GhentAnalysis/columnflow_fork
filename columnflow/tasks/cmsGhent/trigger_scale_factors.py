@@ -73,22 +73,20 @@ class TriggerScaleFactorsBase(
         self.trigger = self.trigger_config_inst.tag
         self.ref_trigger = self.trigger_config_inst.ref_tag
 
-    def loop_variables(
-        self,
-        nonaux: slice | bool = True,
-        aux: od.Variable | None = None,
-    ) -> Iterator[tuple[dict[str, int], od.Category] | dict[str, int]]:
-        loop_vars = []
-        if nonaux:
-            if nonaux is True:
-                nonaux = slice(None, None)
-            loop_vars += self.nonaux_variable_insts[nonaux]
-        if aux is not None:
-            loop_vars.append(aux)
+    def loop_variables(self) -> Iterator[tuple[str]]:
+        tcfg = self.trigger_config_inst
+        for var in tcfg.variable_names:
+            # 1d efficiencies and sf
+            yield var,
 
-        for index in np.ndindex(*[v.n_bins for v in loop_vars]):
-            index = dict(zip(loop_vars, index))
-            yield {vr.name: bn for vr, bn in index.items()}
+            # fully binned efficiency in  main variables with additional variables
+            if var in tcfg.main_variables[1:] or len(tcfg.main_variables) == len(tcfg.variables) == 1:
+                # don't repeat multiple times same combinations
+                continue
+
+            if var not in (vrs := tcfg.main_variables):
+                vrs = sorted({var, *vrs}, key=tcfg.variables.index)
+            yield tuple(vrs)
 
     def data_mc_keys(self, suff=""):
         """
@@ -163,18 +161,21 @@ class TriggerScaleFactors(
 
         collect_hists = util.collect_hist(histograms)
 
-        def eff_and_sf(vars: list[str] | str):
-            vars = law.util.make_list(vars) 
-            triggers = [self.trigger, self.ref_trigger]
+        efficiencies = {}
+        scale_factors: dict[str, hist.Hist] = {}
+        triggers = [self.trigger, self.ref_trigger]
+        for vrs in self.loop_variables():
+            key = "_".join(vrs)
 
             # calculate efficiency binned in given variables
-            red_hist = {dt: util.reduce_hist(h, exclude=vars + triggers) for dt, h in collect_hists.items()}
-            eff = {dt: calc_eff(h) for dt, h in red_hist.items()}
+            red_hist = {dt: util.reduce_hist(h, exclude=vrs + triggers) for dt, h in collect_hists.items()}
+            efficiencies[key] = eff = {dt: calc_eff(h) for dt, h in red_hist.items()}
 
             # calculate sf from efficiencies
             eff_ct = {dt: eff[dt][{"systematic": "central"}] for dt in eff}
-            sf = util.syst_hist(eff_ct["data"].axes, syst_name="central", arrays=eff_ct["data"].values() / eff_ct["mc"].values())
- 
+            sf = util.syst_hist(eff_ct["data"].axes, syst_name="central",
+                                arrays=eff_ct["data"].values() / eff_ct["mc"].values())
+
             if set(law.util.make_list(vars)) == set(tcfg.main_variables):
                 # full uncertainties for main binning
                 for unc_function in self.trigger_config_inst.uncertainties:
@@ -184,24 +185,7 @@ class TriggerScaleFactors(
                 # statistical only for other binnings
                 sf = sf + tcfg.stat_unc(red_hist, store_hists)
 
-            return eff, sf
-
-        efficiencies = {}
-        scale_factors: dict[str, hist.Hist] = {}
-        for var in tcfg.variable_names:
-            # 1d efficiencies and sf
-            efficiencies[var], scale_factors[var] = eff_and_sf(var)
-
-            # fully binned efficiency in  main variables with additional variables
-            if var in tcfg.main_variables[1:] or len(tcfg.main_variables) == len(tcfg.variables) == 1:
-                # don't repeat multiple times same calculation
-                continue
-
-            if var not in (vrs := tcfg.main_variables):
-                vrs = sorted({var, *vrs}, key=tcfg.variables.index)
-
-            key = "_".join(vrs)
-            efficiencies[key], scale_factors[key] = eff_and_sf(vrs)
+            scale_factors[key] = sf
 
         # save efficiency and additional histograms
         self.output()["eff"].dump(efficiencies, formatter="pickle")
@@ -270,7 +254,19 @@ class TrigPlotLabelMixin():
         return p_cat
 
 
+class OutputBranchMixin:
+    def full_output(self):
+        return []
+
+    def create_branch_map(self):
+        return list(self.full_output())
+
+    def output(self):
+        return self.full_output()[self.branch_data]
+
+
 class TriggerScaleFactorsPlotBase(
+    OutputBranchMixin,
     TrigPlotLabelMixin,
     TriggerDatasetsMixin,
     TriggerScaleFactorsBase,
@@ -329,22 +325,22 @@ class TriggerScaleFactorsPlotBase(
         self.var_bin_cats = {}  # for caching
         self.process_inst = self.config_inst.get_process(self.process)
 
-    def loop_variables(
-        self,
-        nonaux: slice | bool = True,
-        aux: od.Variable | None = None,
-    ) -> Iterator[od.Category]:
-        for index in super().loop_variables(nonaux, aux):
-            cat_name = "__".join([f"{vr}_{bn}" for vr, bn in index.items()])
-            if not cat_name:
-                cat_name = "nominal"
-            if cat_name not in self.var_bin_cats:
-                self.var_bin_cats[cat_name] = od.Category(
-                    name=cat_name,
-                    selection=index,
-                    label=self.bin_label(index),
-                )
-            yield self.var_bin_cats[cat_name]
+    # def loop_variables(
+    #     self,
+    #     nonaux: slice | bool = True,
+    #     aux: od.Variable | None = None,
+    # ) -> Iterator[od.Category]:
+    #     for index in super().loop_variables(nonaux, aux):
+    #         cat_name = "__".join([f"{vr}_{bn}" for vr, bn in index.items()])
+    #         if not cat_name:
+    #             cat_name = "nominal"
+    #         if cat_name not in self.var_bin_cats:
+    #             self.var_bin_cats[cat_name] = od.Category(
+    #                 name=cat_name,
+    #                 selection=index,
+    #                 label=self.bin_label(index),
+    #             )
+    #         yield self.var_bin_cats[cat_name]
 
     def get_plot_parameters(self):
         # convert parameters to usable values during plotting
@@ -376,12 +372,6 @@ class TriggerScaleFactors2D(
                 for cat in self.loop_variables(nonaux=slice(2, None), aux=aux_var)
             }
         return out
-
-    def create_branch_map(self):
-        return list(self.full_output())
-
-    def output(self):
-        return self.full_output()[self.branch_data]
 
     @law.decorator.log
     def run(self):
@@ -424,12 +414,11 @@ class TriggerScaleFactors1D(
     PlotBase1D,
 ):
     make_plots = law.CSVParameter(
-        default=("corr", "sf_1d", "eff_1d"),
+        default=("sf", "eff"),
         significant=False,
         description=("which plots to make. Choose from:\n"
-                    "\tcorr: correlation plots\n",
-                    "\tsf_1d: 1d scale factor plots\n",
-                    "\teff_1d: 1d efficiency plots,\n"),
+                    "\tsf: scale factor plots\n",
+                    "\teff: efficiency plots,\n"),
     )
 
     plot_function = PlotBase.plot_function.copy(
@@ -447,7 +436,7 @@ class TriggerScaleFactors1D(
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if "all" in self.make_plots:
-            self.make_plots = ("sf_1d", "eff_1d", "corr")
+            self.make_plots = ("sf", "eff")
 
     def requires(self):
         return self.reqs.TriggerScaleFactors.req(
@@ -458,152 +447,72 @@ class TriggerScaleFactors1D(
 
     def full_output(self):
         out = {}
-        if "sf_1d" in self.make_plots:
-            out["sf_1d_stat"] = [self.target(name) for name in self.get_plot_names("sf_nominal_1d_stat")]
-            out["sf_1d_full"] = [self.target(name) for name in self.get_plot_names("sf_nominal_1d_full")]
-
-            for aux_var in self.aux_variable_insts:
-                n_group = aux_var.aux.get("group_bins", 3)
-                for i in range(0, aux_var.n_bins, n_group):
-                    name = "sf_1d_" + aux_var.name
-                    name += "" if aux_var.n_bins <= n_group else f"_{i}:{i + n_group}"
-                    out[name] = [self.target(name) for name in self.get_plot_names(name)]
-
-        if "eff_1d" in self.make_plots:
-            out["eff_1d"] = [self.target(name) for name in self.get_plot_names("eff_1d")]
-            for vr in self.variable_insts:
-                out[f"eff_1d_proj_{vr.name}"] = [
-                    self.target(name) for name in self.get_plot_names(f"eff_proj_{vr.name}")
+        for vrs in self.loop_variables():
+            is_nominal = set(vrs) == set(self.trigger_config_inst.main_variables)
+            vr_name = "nominal" if is_nominal else "_".join(vrs)
+            for plot_type in self.make_plots:
+                if not (is_nominal or len(vrs) == 1 or plot_type == "sf"):
+                    continue
+                out[(plot_type, tuple(vrs), "stat")] = [
+                    self.target(name) for name in
+                    self.get_plot_names(plot_type + "_1d_stat_" + vr_name)
                 ]
-
-        if "corr" in self.make_plots:
-            for vr in ["all"] + [variable_inst.name for variable_inst in self.nonaux_variable_insts]:
-                out[f"corr_{vr}"] = [self.target(name) for name in self.get_plot_names(f"corr_{vr}")]
+                if plot_type == "sf" and is_nominal:
+                    out[(plot_type, tuple(vrs), "")] = [
+                        self.target(name) for name in
+                        self.get_plot_names(plot_type + "_1d_full_" + vr_name)
+                    ]
         return out
 
-    def create_branch_map(self):
-        return list(self.full_output())
-
-    def output(self):
-        return self.full_output()[self.branch_data]
-
-    def get_hists(self, h: hist.Hist, unc=""):
-        if unc:
-            unc += "_"
-        hs = [h[{"systematic": sys}].values() for sys in ["central", f"{unc}down", f"{unc}up"]]
-        # convert down and up variations to up and down errors
-        return [hs[0], *[np.abs(h - hs[0]) for h in hs[1:]]]
 
     @law.decorator.log
     def run(self):
-        import numpy as np
-
-        od.Category(name=self.baseline_label)
-
-        def plot_1d(key: str, hists, vrs=None, **kwargs):
-            vrs = self.nonaux_variable_insts if vrs is None else vrs
-
-            # exclude auxiliary baseline selection variables if requested
-            p_cat = self.baseline_cat(exclude=[vr.name for vr in vrs])
+        def plot_1d(hists, syst="", **kwargs):
+            for k, h in hists.items():
+                hs = [h[{"systematic": sys}].values() for sys in ["central", f"{syst}down", f"{syst}up"]]
+                # convert down and up variations to up and down errors
+                hists[k] = [hs[0]] + [np.abs(h - hs[0]) for h in hs[1:]]
 
             fig, axes = self.call_plot_func(
                 self.plot_function,
                 hists=hists,
                 config_inst=self.config_inst,
-                category_inst=p_cat,
+                category_inst=self.baseline_cat(),
                 variable_insts=vrs,
                 skip_ratio=len(hists) == 1,
                 **kwargs,
             )
-            if (ll := vrs[0].aux.get("lower_limit", None)) is not None:
-                if len(vrs) > 1:
-                    ll = np.searchsorted(vrs[0].bin_edges, ll)
-                    for vr in vrs[1:]:
-                        ll *= vr.n_bins
-                    ll -= 0.5
-                for ax in axes:
-                    ax.axvspan(-0.5, ll, color="grey", alpha=0.3)
+
             for p in self.output():
                 p.dump(fig, formatter="mpl")
 
-        if "sf_1d" in self.branch_data:
-            scale_factors = self.input()["collection"][0]["sf"].load(formatter="pickle")
+        plot_type, vrs, syst = self.branch_data
+        main_vrs = self.trigger_config_inst.main_variables
+        is_nominal = vrs == main_vrs
 
-            # scale factor flat plot with full errors
-            if self.branch_data == "sf_1d_full":
-                plot_1d("sf_1d_full", {self.process_inst: self.get_hists(scale_factors["nominal"])})
-                return
-                # scale factor flat plot with stat errors
-            sf_flat = self.get_hists(scale_factors["nominal"], unc="stat")
-            if self.branch_data == "sf_1d_stat":
-                plot_1d("sf_1d_stat", {self.process_inst: sf_flat})
-                return
+        if plot_type == "sf":
+            scale_factors = self.input()["collection"][0][plot_type].load(formatter="pickle")
+            sf_nom = scale_factors["_".join(main_vrs)]
+            if len(vrs) == 1 or is_nominal:
+                return plot_1d({self.process_inst: sf_nom}, syst)
 
-            # convert branch to aux variable and bin group
-            aux_vr, group = re.findall("^sf_1d_(.*?)_*([\\d+:\\d+]*)$", self.branch_data, re.DOTALL)[0]
-            i0, i1 = [int(x) for x in group.split(":")]
-            aux_vr = self.config_inst.get_variable(aux_vr)
-            aux_bins = list(self.loop_variables(nonaux=False, aux=aux_vr))[i0:i1]
+            extra_var: od.Variable = self.trigger_config_inst.get_variable([vr for vr in vrs if vr not in main_vrs][0])
+            sf_hist = scale_factors["_".join(vrs)]
+            labels = extra_var.x_labels or sf_hist.axes[extra_var.name]
             plot_1d(
-                self.branch_data,
-                {"nominal": sf_flat} | {
-                    cat.label: self.get_hists(scale_factors[aux_vr.name][cat.selection]) for cat in aux_bins
+                {"nominal": sf_nom} | {
+                    lab: sf_hist[{extra_var.name: k}]
+                    for k, lab in enumerate(labels)
                 },
+                syst,
             )
-
-        if "corr" in self.branch_data:
-            corr_bias = self.input()["collection"][0]["corr"].load(formatter="pickle")
-            get_arr = lambda h: [h.values(), np.sqrt(h.variances())]
-            # correlation plot
-            style_config = {"ax_cfg": {"ylim": (-0.1, 0.1)}}
-            if self.branch_data == "corr_all":
-                plot_1d(
-                    "corr_all",
-                    {self.process_inst: get_arr(corr_bias["all"])},
-                    style_config=style_config,
-                )
-                return
-            vr = re.findall("corr_(.*)", self.branch_data)[0]
-            plot_1d(
-                f"corr_{vr}",
-                {self.process_inst: get_arr(corr_bias[vr])},
-                vrs=[self.config_inst.get_variable(vr)],
-                style_config=style_config,
-            )
-
-        if "eff_1d" in self.branch_data:
-            efficiencies = self.input()["collection"][0]["eff"].load(formatter="pickle")
-            if self.branch_data == "eff_1d":
-                hists = {dt: self.get_hists(efficiencies[dt]) for dt in self.data_mc_keys()[::-1]}
-                plot_1d("eff_1d", hists)  # reverse to mc data (first entry is denominator)
-                return
-
-            vr = re.findall("eff_1d_proj_(.*)", self.branch_data)[0]
-            vr_inst = self.config_inst.get_variable(vr)
-
-            suff = f"{vr}_proj"
-
-            hists = {
-                dt[:-len(suff) - 1]: self.get_hists(efficiencies[dt])
-                for dt in self.data_mc_keys(suff)[::-1]
-            }
-
-            fig, axes = self.call_plot_func(
-                self.plot_function,
-                hists=hists,
-                skip_ratio=False,
-                category_inst=self.baseline_cat(exclude=[vr]),
-                config_inst=self.config_inst,
-                variable_insts=[vr_inst],
-            )
-            if (ll := vr_inst.aux.get("lower_limit", None)) is not None:
-                for ax in axes:
-                    ax.axvspan(-0.5, ll, color="grey", alpha=0.3)
-            for p in self.output():
-                p.dump(fig, formatter="mpl")
+        elif plot_type == "eff":
+            efficiencies = self.input()["collection"][0][plot_type].load(formatter="pickle")
+            return plot_1d(efficiencies, syst)
 
 
 class TriggerScaleFactorsHist(
+    OutputBranchMixin,
     TrigPlotLabelMixin,
     TriggerScaleFactors,
     PlotBase1D,
@@ -624,12 +533,6 @@ class TriggerScaleFactorsHist(
             name = f"proj_{tr}_{vr.name}"
             out[name] = [self.target(name) for name in self.get_plot_names(name)]
         return out
-
-    def create_branch_map(self):
-        return list(self.full_output())
-
-    def output(self):
-        return self.full_output()[self.branch_data]
 
     def get_plot_parameters(self):
         # convert parameters to usable values during plotting
