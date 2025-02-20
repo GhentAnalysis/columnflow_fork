@@ -69,8 +69,9 @@ class TriggerScaleFactorsBase(
         self.nonaux_variable_insts = [v for v in self.variable_insts if v.aux.get("auxiliary") is None]
 
         self.trigger_config_inst: TriggerSFConfig = self.get_trigger_config(self.config_inst, self.trigger_config)
-        self.trigger = self.trigger_config.tag
-        self.ref_trigger = self.trigger_config.ref_tag
+        self.trigger_config = self.trigger_config_inst.config_name
+        self.trigger = self.trigger_config_inst.tag
+        self.ref_trigger = self.trigger_config_inst.ref_tag
 
     def loop_variables(
         self,
@@ -127,9 +128,9 @@ class TriggerDatasetsMixin(
         if not (config_inst := params.get("config_inst")):
             return []
 
-        if (trigger_sf_cfg := config_inst.x("trigger_sf", None)) is None:
+        if (trigger_sf_cfg := config_inst.x("trigger_sf", config_inst.x("trigger_sfs", [None])[0])) is None:
             return []
-        return trigger_sf_cfg.variables
+        return trigger_sf_cfg.variable_names
 
 
 class TriggerScaleFactors(
@@ -141,10 +142,10 @@ class TriggerScaleFactors(
 
     def output(self):
         out = {
-            "json": self.target(f"{self.tag_name}_sf.json"),
-            "sf": self.target(f"{self.tag_name}_sf.pickle"),
-            "eff": self.target(f"{self.tag_name}_eff.pickle"),
-            "hist": self.target(f"{self.tag_name}_hist.pickle"),
+            "json": self.target(f"{self.trigger_config}_sf.json"),
+            "sf": self.target(f"{self.trigger_config}_sf.pickle"),
+            "eff": self.target(f"{self.trigger_config}_eff.pickle"),
+            "hist": self.target(f"{self.trigger_config}_hist.pickle"),
         }
         return out
 
@@ -154,7 +155,7 @@ class TriggerScaleFactors(
         import correctionlib.convert
 
         calc_eff = lambda h: util.calculate_efficiency(h, self.trigger, self.ref_trigger, self.efficiency)
-        tcfg: TriggerSFConfig = self.trigger_config
+        tcfg = self.trigger_config_inst
 
         hist_name = self.trigger_config_inst.config_name + "_efficiencies"
         histograms = self.read_hist(self.variable_insts, hist_name)
@@ -163,28 +164,31 @@ class TriggerScaleFactors(
         collect_hists = util.collect_hist(histograms)
 
         def eff_and_sf(vars: list[str] | str):
+            vars = law.util.make_list(vars) 
+            triggers = [self.trigger, self.ref_trigger]
 
             # calculate efficiency binned in given variables
-            red_hist = {dt: util.reduce_hist(h, exclude=vars) for dt, h in collect_hists.items()}
+            red_hist = {dt: util.reduce_hist(h, exclude=vars + triggers) for dt, h in collect_hists.items()}
             eff = {dt: calc_eff(h) for dt, h in red_hist.items()}
 
             # calculate sf from efficiencies
-            sf = util.syst_hist(eff["data"].axes, syst_name="central", arrays=eff["data"].values() / eff["mc"].values())
-
+            eff_ct = {dt: eff[dt][{"systematic": "central"}] for dt in eff}
+            sf = util.syst_hist(eff_ct["data"].axes, syst_name="central", arrays=eff_ct["data"].values() / eff_ct["mc"].values())
+ 
             if set(law.util.make_list(vars)) == set(tcfg.main_variables):
                 # full uncertainties for main binning
                 for unc_function in self.trigger_config_inst.uncertainties:
                     if (unc := unc_function(histograms, store_hists)) is not None:
                         sf = sf + unc
-            else:
+            elif tcfg.stat_unc is not None:
                 # statistical only for other binnings
-                sf = sf + tcfg.stat_unc(red_hist)
+                sf = sf + tcfg.stat_unc(red_hist, store_hists)
 
             return eff, sf
 
         efficiencies = {}
         scale_factors: dict[str, hist.Hist] = {}
-        for var in tcfg.variables:
+        for var in tcfg.variable_names:
             # 1d efficiencies and sf
             efficiencies[var], scale_factors[var] = eff_and_sf(var)
 
@@ -204,35 +208,35 @@ class TriggerScaleFactors(
         self.output()["hist"].dump(store_hists, formatter="pickle")
 
         # add up all uncertainties for nominal
-        sf_hists = {}
         for sf_type, hst in scale_factors.items():
             hst.name = "scale_factors"
             hst.label = (
                 f"trigger scale factors for {self.trigger} trigger with reference {self.ref_trigger} "
                 f"for year {self.config_inst.x.year}"
             )
-            get_syst = lambda syst: hst[{"systematic": syst}].values()
-            ct = get_syst("central")
-            # add quadratic sum of all uncertainties
-            variance = {dr: 0 for dr in [od.Shift.DOWN, od.Shift.UP]}
-            for err in hst.axes["systematic"]:
-                for dr in variance:
-                    if dr in variance:
-                        variance[dr] += (get_syst(err) - ct) ** 2
+            if len(hst.axes["systematic"]) > 1:
+                get_syst = lambda syst: hst[{"systematic": syst}].values()
+                ct = get_syst("central")
+                # add quadratic sum of all uncertainties
+                variance = {dr: 0 for dr in [od.Shift.DOWN, od.Shift.UP]}
+                for err in hst.axes["systematic"]:
+                    for dr in variance:
+                        if dr in variance:
+                            variance[dr] += (get_syst(err) - ct) ** 2
 
-            var_hst = util.syst_hist(hst.axes, arrays=[ct - variance[od.Shift.DOWN], ct + variance[od.Shift.UP]])
-            scale_factors[sf_type] = hst + var_hst
+                var_hst = util.syst_hist(hst.axes, arrays=[ct - variance[od.Shift.DOWN], ct + variance[od.Shift.UP]])
+                scale_factors[sf_type] = hst + var_hst
 
         # save sf histograms
-        self.output()["sf"].dump(sf_hists, formatter="pickle")
+        self.output()["sf"].dump(scale_factors, formatter="pickle")
 
         # save nominal as correctionlib file (not possible to specify the flow for each variable separately)
         nom_key = "_".join(tcfg.main_variables)
-        clibcorr = correctionlib.convert.from_histogram(sf_hists[nom_key], flow="clamp")
-        clibcorr.description = sf_hists[nom_key].label
+        clibcorr = correctionlib.convert.from_histogram(scale_factors[nom_key], flow="clamp")
+        clibcorr.description = scale_factors[nom_key].label
 
         cset = correctionlib.schemav2.CorrectionSet(
-            schema_version=2, description=sf_hists[nom_key].label, corrections=[clibcorr],
+            schema_version=2, description=scale_factors[nom_key].label, corrections=[clibcorr],
         )
         self.output()["json"].dump(cset.dict(exclude_unset=True), indent=4, formatter="json")
 

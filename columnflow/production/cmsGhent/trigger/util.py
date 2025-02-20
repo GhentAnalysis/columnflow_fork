@@ -3,18 +3,16 @@ from typing import Callable
 from collections.abc import Collection, Sequence
 from dataclasses import asdict
 
-
-import numpy as np
-
 import law.util
 import order as od
-import hist
-from hist import Hist
 
 from columnflow.production import Producer
 from columnflow.weight import WeightProducer
 from columnflow.util import maybe_import
 
+hist = maybe_import("hist")
+Hist = hist.Hist
+np = maybe_import("numpy")
 
 logger = law.logger.get_logger(__name__)
 
@@ -24,6 +22,7 @@ def reduce_hist(
     reduce: str | Collection[str] | dict[str, sum | int] | Ellipsis = Ellipsis,
     exclude: str | Collection[str] = tuple(),
 ):
+    exclude = law.util.make_list(exclude)
     if reduce is Ellipsis:
         hist = hist.project(*exclude)
     elif reduce is not None:
@@ -33,7 +32,7 @@ def reduce_hist(
             if isinstance(reduce, dict)
             else sum
             for v in reduce
-            if v not in law.util.make_list(exclude)}
+            if v not in exclude}
         ]
     return hist
 
@@ -67,12 +66,12 @@ def syst_hist(
         variations =[f"{syst_name}_{dr}" if syst_name else dr for dr in [od.Shift.DOWN, od.Shift.UP]]
     h = Hist(
         hist.axis.StrCategory(variations, name="systematic", growth=True),
-        *axes,
+        *[ax for ax in axes if ax.name != "systematic"],
         storage=hist.storage.Weight,
     )
     h.variances()[:] = 1  # plotting functions assume presence of variances
     if arrays is not None:
-        h.values()[:] = law.util.make_list(arrays)
+        h.values()[:] = np.array(arrays)
     return h
 
 

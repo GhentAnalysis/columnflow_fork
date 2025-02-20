@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Callable
+from typing import Callable, Sequence
 from collections.abc import Collection
 
 from columnflow.util import maybe_import
@@ -33,7 +33,7 @@ def calc_stat(
         if not idx.pop(ref_trigger):
             continue
         inputs = [h[bn].value for h in hist_bins for bn in [1, sum]]
-        out_hist[idx][:] = error_func(*inputs)
+        out_hist[idx].values()[:] = error_func(*inputs)
     return out_hist
 
 
@@ -42,8 +42,9 @@ def calc_corr(
     trigger: str,
     ref_trigger: str,
     store_hists: dict,
-    corr_variables: list[str] = None,
+    corr_variables: Sequence[str] = tuple(),
     corr_func: Callable[[Hist], tuple[float, float]] = util.correlation_efficiency_bias,
+    tag=None,
 ) -> Hist:
     # histograms = util.collect_hist(histograms)
     mc_hist = histograms["mc"]
@@ -53,18 +54,21 @@ def calc_corr(
     unred_corr_hist = mc_hist[{t: sum for t in triggers}]
 
     # reduce axes
-    util.reduce_hist(mc_hist, Ellipsis, exclude=[*triggers, *corr_variables])
+    mc_hist = util.reduce_hist(mc_hist, exclude=[*triggers, *corr_variables])
 
     # histogram to store correlation for each bin (after reducing)
     corr_vars = [ax.name for ax in mc_hist.axes if ax.name not in triggers]
-    corr_hist = mc_hist.project(*corr_vars)
+    if corr_vars:
+        corr_hist = mc_hist.project(*corr_vars)
+    else:
+        corr_hist = hist.Hist.new.IntCategory([0]).Weight()
     corr_hist.name = f"correlation bias" + (f"({', '.join(corr_vars)})" if corr_vars else "")
     corr_hist.label = (
         f"correlation bias for {trigger} trigger with reference {ref_trigger} "
         f"(binned in {', '.join(corr_vars)})" if corr_vars else "(inclusive)"
     )
 
-    for idx, hist_bin in util.loop_hists(histograms["mc"], exclude_axes=triggers):
+    for idx, hist_bin in util.loop_hists(mc_hist, exclude_axes=triggers):
         # calculate correlation (tuple central, variance or central)
         c = corr_func(hist_bin.project(*triggers))
 
@@ -74,19 +78,21 @@ def calc_corr(
             c = np.array(corr_func(hist_bin.project(*triggers)), dtype=dtype)
 
         # store correlation
-        corr_hist[idx] = c
+        corr_hist[idx] = c if idx else [c]
 
         # broadcast for unreduced hist
         unred_corr_hist[idx] = np.full_like(unred_corr_hist[idx], c)
 
     # store correlation histogram for plotting by itself
-    store_hists["corr"] = corr_hist
+    if tag is None:
+        tag = "corr" + ("" if not corr_vars else ("_" + "_".join(corr_vars)))
+    store_hists[tag] = corr_hist
 
     # calculate up and down variations on scale factors
     eff = {dt: util.calculate_efficiency(histograms[dt], *triggers) for dt in histograms}
     sf = eff["data"].values() / eff["mc"].values()
     sf_vars = [sf - sf * unred_corr_hist.values(), sf + sf * unred_corr_hist.values()]
-    sf_vars = util.syst_hist(unred_corr_hist.axes, syst_name="corr", arrays=sf_vars)
+    sf_vars = util.syst_hist(unred_corr_hist.axes, syst_name=tag, arrays=sf_vars)
 
     return sf_vars
 

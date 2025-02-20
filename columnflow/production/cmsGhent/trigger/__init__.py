@@ -28,7 +28,7 @@ logger = law.logger.get_logger(__name__)
 class TriggerSFConfig:
     triggers: str | Iterable[str]
     ref_triggers: str | Iterable[str]
-    variables: Sequence[str]
+    variables: Sequence[od.Variable]
     datasets: Iterable[str]
     corrector_kwargs: dict[str, Any] = field(default_factory=dict)
 
@@ -68,9 +68,17 @@ class TriggerSFConfig:
         self.x = DotDict(self.aux)
         if self.config_name is None:
             self.config_name = f"hlt_{self.tag.lower()}_ref_{self.ref_tag.lower()}"
+
+        for v in self.variables:
+            red = v.x("reduce", sum) 
+            assert red is sum or isinstance(red, slice) and red.step is sum or isinstance(red, int), (
+                f"invalid reduce method {red} for variable {v}"
+            ) 
+        self._var_mapping = {v.name: v for v in self.variables}
+        self.variable_names = list(self._var_mapping)
         if self.main_variables is None:
-            self.main_variables = self.variables
-        self.main_variables = sorted(self.main_variables, key=self.variables.index)
+            self.main_variables = self.variable_names 
+        self.main_variables = sorted(self.main_variables, key=self.variable_names.index)
 
         uncertainties, self.uncertainties = self.uncertainties, []
         for unc in uncertainties:
@@ -78,6 +86,9 @@ class TriggerSFConfig:
 
     def copy(self, **changes):
         return replace(self, **changes)
+
+    def get_variable(var_name: str) -> od.Variable:
+        return self._var_mapping[var_name]
 
     def event_mask(self, func: Callable[[ak.Array], ak.Array] = None, uses: set = None) -> None:
         """
@@ -104,6 +115,7 @@ class TriggerSFConfig:
         variables: Collection[str]=None,
         collect_mc_data=True,
         stat=False,
+        skip=False,
         **unc_kwargs,
     ):
         if variables is None:
@@ -116,12 +128,19 @@ class TriggerSFConfig:
                 *args,
                 **kwargs,
             ):
-                vrs = [self.tag, self.ref_tag, *variables]
                 if collect_mc_data:
                     histograms = collect_hist(histograms)
-                histograms = {dt: reduce_hist(h, exclude=vrs) for dt, h in histograms.items()}
+                vrs = [self.tag, self.ref_tag, *variables]
+                for dt, h in histograms.items():
+                    red_vrs = {
+                        name: self.get_variable(name).x("reduce", sum)
+                        for name in h.axes.name if name not in vrs
+                    }
+                    histograms[dt] = reduce_hist(h, red_vrs)
                 kwargs |= unc_kwargs
-                return func(histograms, self.tag, self.ref_tag, *args, **kwargs)
+                out = func(histograms, self.tag, self.ref_tag, *args, **kwargs)
+                if not skip:
+                    return out
             if stat:
                 self._stat_func = lambda hs, *args, **kwargs: func(hs, self.tag, self.ref_tag, *args, **kwargs)
             self.uncertainties.append(decorated_func)
