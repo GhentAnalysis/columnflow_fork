@@ -87,7 +87,7 @@ class TriggerSFConfig:
     def copy(self, **changes):
         return replace(self, **changes)
 
-    def get_variable(var_name: str) -> od.Variable:
+    def get_variable(self, var_name: str) -> od.Variable:
         return self._var_mapping[var_name]
 
     def event_mask(self, func: Callable[[ak.Array], ak.Array] = None, uses: set = None) -> None:

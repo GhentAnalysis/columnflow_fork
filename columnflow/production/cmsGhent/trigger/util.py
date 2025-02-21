@@ -26,11 +26,10 @@ def reduce_hist(
     if reduce is Ellipsis:
         hist = hist.project(*exclude)
     elif reduce is not None:
-        reduce = law.util.make_list(reduce)
+        if not isinstance(reduce, dict):
+            reduce = law.util.make_list(reduce)
         hist = hist[{
-            v: reduce[v]
-            if isinstance(reduce, dict)
-            else sum
+            v: (reduce[v] if isinstance(reduce, dict) else sum)
             for v in reduce
             if v not in exclude}
         ]

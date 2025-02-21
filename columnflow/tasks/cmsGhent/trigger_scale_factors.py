@@ -453,7 +453,7 @@ class TriggerScaleFactors1D(
             for plot_type in self.make_plots:
                 if not (is_nominal or len(vrs) == 1 or plot_type == "sf"):
                     continue
-                out[(plot_type, tuple(vrs), "stat")] = [
+                out[(plot_type, tuple(vrs), "stat" if plot_type == "sf" else "")] = [
                     self.target(name) for name in
                     self.get_plot_names(plot_type + "_1d_stat_" + vr_name)
                 ]
@@ -468,8 +468,10 @@ class TriggerScaleFactors1D(
     @law.decorator.log
     def run(self):
         def plot_1d(hists, syst="", **kwargs):
-            for k, h in hists.items():
-                hs = [h[{"systematic": sys}].values() for sys in ["central", f"{syst}down", f"{syst}up"]]
+            if syst:
+                syst = syst.rstrip("_") +  "_" 
+            for k, hs in hists.items():
+                hs = [hs[{"systematic": sys}].values() for sys in ["central", f"{syst}down", f"{syst}up"]]
                 # convert down and up variations to up and down errors
                 hists[k] = [hs[0]] + [np.abs(h - hs[0]) for h in hs[1:]]
 
@@ -478,7 +480,7 @@ class TriggerScaleFactors1D(
                 hists=hists,
                 config_inst=self.config_inst,
                 category_inst=self.baseline_cat(),
-                variable_insts=vrs,
+                variable_insts=[self.trigger_config_inst.get_variable(v) for v in vrs],
                 skip_ratio=len(hists) == 1,
                 **kwargs,
             )
@@ -487,17 +489,17 @@ class TriggerScaleFactors1D(
                 p.dump(fig, formatter="mpl")
 
         plot_type, vrs, syst = self.branch_data
-        main_vrs = self.trigger_config_inst.main_variables
+        main_vrs = tuple(self.trigger_config_inst.main_variables)
         is_nominal = vrs == main_vrs
 
         if plot_type == "sf":
             scale_factors = self.input()["collection"][0][plot_type].load(formatter="pickle")
-            sf_nom = scale_factors["_".join(main_vrs)]
-            if len(vrs) == 1 or is_nominal:
-                return plot_1d({self.process_inst: sf_nom}, syst)
-
-            extra_var: od.Variable = self.trigger_config_inst.get_variable([vr for vr in vrs if vr not in main_vrs][0])
             sf_hist = scale_factors["_".join(vrs)]
+            if len(vrs) == 1 or is_nominal:
+                return plot_1d({self.process_inst: sf_hist}, syst)
+
+            sf_nom = scale_factors["_".join(main_vrs)]
+            extra_var: od.Variable = self.trigger_config_inst.get_variable([vr for vr in vrs if vr not in main_vrs][0])
             labels = extra_var.x_labels or sf_hist.axes[extra_var.name]
             plot_1d(
                 {"nominal": sf_nom} | {
@@ -508,7 +510,7 @@ class TriggerScaleFactors1D(
             )
         elif plot_type == "eff":
             efficiencies = self.input()["collection"][0][plot_type].load(formatter="pickle")
-            return plot_1d(efficiencies, syst)
+            return plot_1d(efficiencies["_".join(vrs)], syst)
 
 
 class TriggerScaleFactorsHist(
