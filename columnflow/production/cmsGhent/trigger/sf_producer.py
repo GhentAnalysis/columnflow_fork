@@ -10,7 +10,7 @@ import law
 from columnflow.production import producer, Producer
 from columnflow.util import maybe_import
 from columnflow.columnar_util import set_ak_column, has_ak_column, Route
-from columnflow.production.cmsGhent.trigger.util import init_trigger
+import columnflow.production.cmsGhent.trigger.util as util
 
 
 np = maybe_import("numpy")
