@@ -357,7 +357,7 @@ class PlotTriggerScaleFactors2D(
         sys, vr1, vr2, *other_vars = self.branch_data
 
         index = dict(other_vars) | {"systematic": sys}
-        key = "_".join([vr1, vr2, *dir(other_vars)])
+        key = "_".join([vr1, vr2, *dict(other_vars)])
 
         hist2d = scale_factors[key][index]
 
@@ -381,7 +381,7 @@ class PlotTriggerScaleFactors2D(
             p.dump(fig, formatter="mpl")
 
 
-class TriggerScaleFactors1D(
+class PlotTriggerScaleFactors1D(
     PlotTriggerScaleFactorsBase,
     PlotBase1D,
 ):
@@ -450,7 +450,7 @@ class TriggerScaleFactors1D(
             p.dump(fig, formatter="mpl")
 
 
-class TriggerEfficiencies1D(
+class PlotTriggerEfficiencies1D(
     PlotTriggerScaleFactorsBase,
     PlotBase1D,
 ):
@@ -500,7 +500,7 @@ class TriggerEfficiencies1D(
             p.dump(fig, formatter="mpl")
 
 
-class TriggerScaleFactorsHist(
+class PlotTriggerScaleFactorsHist(
     TrigPlotLabelMixin,
     TriggerDatasetsMixin,
     SelectionEfficiencyHistMixin,
@@ -520,9 +520,9 @@ class TriggerScaleFactorsHist(
 
     def full_output(self):
         out = {}
-        for tr, vr in product(["ref", "trig"], self.variable_insts):
+        for tr, vr in product(["ref", "trig"], self.trigger_config_inst.variables):
             name = f"proj_{tr}_{vr.name}"
-            out[name] = [self.target(name) for name in self.get_plot_names(name)]
+            out[(tr, vr.name)] = [self.target(name) for name in self.get_plot_names(name)]
         return out
 
     def get_plot_parameters(self):
@@ -536,14 +536,14 @@ class TriggerScaleFactorsHist(
         hist_name = self.tag_name + "_ref_" + self.ref_trigger.lower() + "_efficiencies"
         histograms = self.read_hist(self.variable_insts, hist_name)
 
-        trig_label, vr = re.findall("proj_(.*?)_(.*?)$", self.branch_data)[0]
-        vr = self.config_inst.get_variable(vr)
+        trig_label, vr = self.branch_data
+        vr = self.trigger_config_inst.get_variable(vr)
 
-        p_cat = self.baseline_cat(exclude=[vr])
+        p_cat = self.baseline_cat()
 
         p_cat.label += "\n" + self.ref_trigger
         # reduce all variables but the one considered
-        idx = {ivr.name: self.aux_variable_insts.get(ivr, sum) for ivr in self.variable_insts if ivr != vr}
+        idx = {ivr.name: ivr.x("reduce", sum) for ivr in self.trigger_config_inst.variables if ivr != vr}
         idx[self.ref_trigger] = 1
         if trig_label == "trig":
             p_cat.label += " & " + self.trigger
@@ -558,8 +558,5 @@ class TriggerScaleFactorsHist(
             **self.get_plot_parameters(),
         )
 
-        if (ll := vr.aux.get("lower_limit", None)) is not None:
-            for ax in axes:
-                ax.axvspan(-0.5, ll, color="grey", alpha=0.3)
         for p in self.output():
             p.dump(fig, formatter="mpl")
