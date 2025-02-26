@@ -22,7 +22,6 @@ logger = law.logger.get_logger(__name__)
 
 
 @producer(
-    # only run on mc
     trigger_config=lambda self: self.config_inst.x.trigger_sf,
 )
 def trigger_efficiency_hists(
@@ -84,6 +83,7 @@ def trigger_efficiency_hists(
                 label=var_inst.get_full_x_title(),
             )
         hists[f"{self.config_name}_efficiencies"] = histogram.Weight()
+
     fill_hist(
         hists[f"{self.config_name}_efficiencies"],
         fill_data,
@@ -113,31 +113,36 @@ def trigger_efficiency_hists_init(self: Producer):
         self.objects = {inp.split(".")[0] for inp in eff_bin_vars_inputs if "." in inp}
 
     # add variable to bin measured trigger PASS / FAIL
-    self.variables = self.variables + (
-        od.Variable(
+    # create DotDict to ensure ordering and removal of duplicate variables
+    variables = DotDict.wrap({var.name: var for var in self.variables})
+
+    variables.update(DotDict.wrap({
+        self.tag: od.Variable(
             self.tag,
             expression=lambda events: np.any([events.HLT[trigger] for trigger in self.triggers], axis=0),
             binning=(2, -0.5, 1.5),
             x_labels=["FAIL", "PASS"],
             aux={"inputs": [f"HLT.{trigger}" for trigger in self.triggers]},
         ),
-        od.Variable(
+        self.ref_tag: od.Variable(
             self.ref_tag,
             expression=lambda events: np.any([events.HLT[trigger] for trigger in self.ref_triggers], axis=0),
             binning=(2, -0.5, 1.5),
             x_labels=["FAIL", "PASS"],
-            aux={"inputs": {f"HLT.{trigger}" for trigger in self.ref_triggers}},
+            aux={"inputs": [f"HLT.{trigger}" for trigger in self.ref_triggers]},
         ),
-    )
+    }))
+    self.variables = tuple(variables.values())
 
     util.init_uses_variables(self)
+
 
 @producer(
     # only run on mc
     mc_only=True,
     # lepton config bundle, function to determine the location of a list of LeptonWeightConfig's
     trigger_configs=lambda self: self.config_inst.x.trigger_sfs,
-    config_naming=lambda self, cfg: "hist_" + cfg.sf_name
+    config_naming=lambda self, cfg: "hist_" + cfg.sf_name,
 )
 def bundle_trigger_histograms(
     self: Producer,

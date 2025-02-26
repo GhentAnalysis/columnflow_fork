@@ -86,9 +86,8 @@ def trigger_scale_factors_requires(self: Producer, reqs: dict) -> None:
         reqs["trigger_scalefactor"] = TriggerScaleFactors.req(
             self.task,
             datasets=self.datasets,
-            variables=self.variables,
-            trigger=self.tag,
-            ref_trigger=self.ref_tag,
+            variables=self.trigger_config.variable_names,
+            trigger_config=self.trigger_config,
         )
 
 
@@ -123,7 +122,7 @@ def trigger_scale_factors_setup(
     mc_only=True,
     # lepton config bundle, function to determine the location of a list of LeptonWeightConfig's
     trigger_configs=lambda self: self.config_inst.x.trigger_sfs,
-    config_naming=lambda self, cfg: cfg.sf_name
+    config_naming=lambda self, cfg: cfg.sf_name,
 )
 def bundle_trigger_weights(
     self: Producer,

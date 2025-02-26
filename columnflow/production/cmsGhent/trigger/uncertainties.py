@@ -8,7 +8,6 @@ import columnflow.production.cmsGhent.trigger.util as util
 
 import numpy as np
 
-np = maybe_import("numpy")
 hist = maybe_import("hist")
 
 Hist = hist.Hist
@@ -19,7 +18,7 @@ def calc_stat(
     trigger: str,
     ref_trigger: str,
     store_hists: dict,
-    error_func: Callable[[float, float, float, float], tuple[float, float]] = koopman_confint
+    error_func: Callable[[float, float, float, float], tuple[float, float]] = koopman_confint,
 ) -> Hist:
     """
     get scale factor uncertainties for efficiencies determined by the given suffix. Allow
@@ -33,7 +32,10 @@ def calc_stat(
         if not idx.pop(ref_trigger):
             continue
         inputs = [h[bn].value for h in hist_bins for bn in [1, sum]]
-        out_hist[idx].values()[:] = error_func(*inputs)
+        out_hist_idx = out_hist[idx]
+        out_hist_idx.values()[:] = error_func(*inputs)
+        out_hist[idx] = out_hist_idx.view()
+
     return out_hist
 
 
@@ -62,7 +64,7 @@ def calc_corr(
         corr_hist = mc_hist.project(*corr_vars)
     else:
         corr_hist = hist.Hist.new.IntCategory([0]).Weight()
-    corr_hist.name = f"correlation bias" + (f"({', '.join(corr_vars)})" if corr_vars else "")
+    corr_hist.name = "correlation bias" + (f"({', '.join(corr_vars)})" if corr_vars else "")
     corr_hist.label = (
         f"correlation bias for {trigger} trigger with reference {ref_trigger} "
         f"(binned in {', '.join(corr_vars)})" if corr_vars else "(inclusive)"
@@ -112,8 +114,8 @@ def calc_auxiliary_unc(
     auxiliaries: list[str],
     dev_func: str | Callable[
         [np.ndarray, Collection[int]],  # an array, indices of auxilaray indices
-        np.ndarray | tuple[np.ndarray, np.ndarray]  # symmetric or down, up
-    ] = "max_dev_sym"
+        np.ndarray | tuple[np.ndarray, np.ndarray],  # symmetric or down, up
+    ] = "max_dev_sym",
 ):
     triggers = (trigger, ref_trigger)
     if isinstance(dev_func, str):
