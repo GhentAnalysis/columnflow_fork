@@ -12,7 +12,7 @@ import law
 from columnflow.tasks.framework.base import Requirements, AnalysisTask, DatasetTask, wrapper_factory
 from columnflow.tasks.framework.mixins import (
     CalibratorsMixin, SelectorStepsMixin, ProducersMixin, MLModelsMixin, VariablesMixin,
-    ShiftSourcesMixin, WeightProducerMixin, ChunkedIOMixin
+    ShiftSourcesMixin, WeightProducerMixin, ChunkedIOMixin,
 )
 from columnflow.tasks.framework.remote import RemoteWorkflow
 from columnflow.tasks.framework.parameters import last_edge_inclusive_inst
