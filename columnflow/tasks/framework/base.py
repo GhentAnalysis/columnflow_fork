@@ -42,6 +42,7 @@ class Requirements(DotDict):
         instances and additional keyword arguments ``kwargs``, which are
         added.
         """
+
     def __init__(self, *others, **kwargs):
 
         super().__init__()
